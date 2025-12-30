@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Minus, Plus, X } from 'lucide-react';
 
@@ -19,6 +20,7 @@ const ZOOM_STEP = 0.05;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onCancel, onConfirm }) => {
+  const sourceImageRef = useRef<HTMLImageElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<{
     pointerId: number;
@@ -52,6 +54,42 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
     setOffset({ x: 0, y: 0 });
     setNatural(null);
     setLoadError(null);
+    sourceImageRef.current = null;
+    dragRef.current = null;
+    mouseDragRef.current = null;
+    touchDragRef.current = null;
+  }, [isOpen, src]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!src) return;
+
+    let cancelled = false;
+    const img = new Image();
+
+    const finish = () => {
+      if (cancelled) return;
+      sourceImageRef.current = img;
+      setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    };
+
+    img.onload = finish;
+    img.onerror = () => {
+      if (cancelled) return;
+      setLoadError('Failed to load this image. Try another file.');
+    };
+
+    img.src = src;
+
+    if (typeof (img as any).decode === 'function') {
+      (img as any).decode().then(finish).catch(() => {
+        // ignore (onload/onerror will handle)
+      });
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, src]);
 
   const baseScale = useMemo(() => {
@@ -160,10 +198,8 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
     dragRef.current = null;
   };
 
-  const supportsPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
-
   const onMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (supportsPointerEvents) return;
+    if (dragRef.current) return;
     if (!natural) return;
     e.preventDefault();
     mouseDragRef.current = {
@@ -175,7 +211,7 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
   };
 
   const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (supportsPointerEvents) return;
+    if (dragRef.current) return;
     if (!natural) return;
     const touch = e.changedTouches[0];
     if (!touch) return;
@@ -190,7 +226,6 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
   };
 
   useEffect(() => {
-    if (supportsPointerEvents) return;
     if (!isOpen) return;
 
     const onMouseMove = (e: MouseEvent) => {
@@ -233,7 +268,7 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
       window.removeEventListener('touchend', onTouchEnd);
       window.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [clampOffset, isOpen, supportsPointerEvents]);
+  }, [clampOffset, isOpen]);
 
   const adjustZoom = (delta: number) => {
     setZoom((z) => clamp(Math.round((z + delta) * 100) / 100, MIN_ZOOM, MAX_ZOOM));
@@ -246,7 +281,8 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
   };
 
   const handleConfirm = () => {
-    if (!imgRef.current || !natural) return;
+    const source = sourceImageRef.current || imgRef.current;
+    if (!source || !natural) return;
 
     const canvas = document.createElement('canvas');
     canvas.width = OUTPUT_SIZE;
@@ -267,20 +303,22 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    ctx.drawImage(imgRef.current, srcX, srcY, srcW, srcH, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+    ctx.drawImage(source, srcX, srcY, srcW, srcH, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     onConfirm(dataUrl);
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
         >
           <motion.div
             initial={{ scale: 0.95, opacity: 0, y: 16 }}
@@ -326,22 +364,21 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
                     <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-red-700">
                       {loadError}
                     </div>
+                  ) : !natural ? (
+                    <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-gray-500">
+                      Loading…
+                    </div>
                   ) : (
                     <img
                       ref={imgRef}
                       src={src}
                       alt="Crop source"
                       draggable={false}
-                      onLoad={(e) => {
-                        const el = e.currentTarget;
-                        setNatural({ w: el.naturalWidth, h: el.naturalHeight });
-                      }}
-                      onError={() => setLoadError('Failed to load this image. Try another file.')}
                       className="absolute left-1/2 top-1/2 select-none pointer-events-none"
                       style={{
-                        width: natural ? `${natural.w}px` : undefined,
-                        height: natural ? `${natural.h}px` : undefined,
-                        transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                        width: `${displayed.w}px`,
+                        height: `${displayed.h}px`,
+                        transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`,
                         transformOrigin: 'center',
                       }}
                     />
@@ -407,7 +444,8 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({ isOpen, src, title, onC
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 };
 
