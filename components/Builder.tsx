@@ -115,7 +115,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
     const newBlock: BlockData = {
       id: Math.random().toString(36).substr(2, 9),
       type,
-      title: type === BlockType.SOCIAL ? 'Social' : type === BlockType.MAP ? 'Location' : type === BlockType.SPACER ? 'Spacer' : 'New Block',
+      title: type === BlockType.SOCIAL ? 'X' : type === BlockType.MAP ? 'Location' : type === BlockType.SPACER ? 'Spacer' : 'New Block',
       content: '',
       colSpan: type === BlockType.SPACER ? 3 : 1,
       rowSpan: 1,
@@ -123,6 +123,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
       textColor: 'text-gray-900',
       gridColumn: gridPosition.col,
       gridRow: gridPosition.row,
+      ...(type === BlockType.SOCIAL ? { socialPlatform: 'x' as const, socialHandle: '' } : {}),
     };
     handleSetBlocks([...blocks, newBlock]);
     setEditingBlockId(newBlock.id);
@@ -725,7 +726,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
         </div>
         
         {/* Footer - Centered on full width */}
-        {viewMode === 'desktop' && (
+        {viewMode === 'desktop' && profile.showBranding !== false && (
           <footer className="w-full py-10 text-center">
             <p className="text-sm text-gray-400 font-medium">
               Made with <span className="text-red-400">♥</span> using{' '}

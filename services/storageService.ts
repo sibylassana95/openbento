@@ -10,7 +10,8 @@ const DEFAULT_PROFILE = {
   bio: "Digital creator & developer.\nBuilding awesome things.",
   avatarUrl: AVATAR_PLACEHOLDER,
   theme: 'light' as const,
-  primaryColor: 'blue'
+  primaryColor: 'blue',
+  showBranding: true
 };
 
 const DEFAULT_BLOCKS = [
@@ -169,4 +170,3 @@ export const renameBento = (id: string, newName: string): void => {
     });
   }
 };
-

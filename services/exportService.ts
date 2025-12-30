@@ -704,6 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
 const generateHtml = (data: SiteData, imageMap: Record<string, string>): string => {
   const { profile, blocks } = data;
   const avatarSrc = imageMap['profile_avatar'] || profile.avatarUrl;
+  const showBranding = profile.showBranding !== false;
   
   // Sort blocks by grid position (row first, then column) for correct visual order
   const sortedBlocks = [...blocks].sort((a, b) => {
@@ -876,9 +877,10 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
             </main>
         </div>
     </div>
+    ${showBranding ? `
     <footer>
         <p>Made with <span class="heart">♥</span> using <a href="https://github.com/yoanbernabeu/openbento" target="_blank" rel="noopener noreferrer">OpenBento</a></p>
-    </footer>
+    </footer>` : ''}
 </body>
 </html>`;
 };

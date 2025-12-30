@@ -1,7 +1,16 @@
 import React, { useRef, useState } from 'react';
-import { BlockData, BlockType, UserProfile } from '../types';
+import { BlockData, BlockType, SocialPlatform, UserProfile } from '../types';
 import { BASE_COLORS } from '../constants';
 import { X, Link, MapPin, Image as ImageIcon, Type, Github, Upload, Trash2, LayoutGrid, Type as TypeIcon, MoveVertical, ArrowLeftRight, Youtube, ExternalLink, RefreshCw, Loader2, Grid3X3, Square, List, Palette, CheckCircle2 } from 'lucide-react';
+import {
+  buildSocialUrl,
+  extractHandleFromUrl,
+  getSocialDisplayHandle,
+  getSocialPlatformOption,
+  inferSocialPlatformFromUrl,
+  normalizeSocialHandle,
+  SOCIAL_PLATFORM_OPTIONS,
+} from '../socialPlatforms';
 
 interface EditorSidebarProps {
   profile: UserProfile;
@@ -50,7 +59,20 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
     }
   };
 
-  const isYouTubeActive = editingBlock?.channelId && editingBlock.channelId.length > 0;
+  const isYouTubeActive = editingBlock?.type === BlockType.SOCIAL && !!(editingBlock.channelId && editingBlock.channelId.length > 0);
+
+  const resolvedSocialPlatform: SocialPlatform | undefined =
+    editingBlock?.type === BlockType.SOCIAL
+      ? editingBlock.socialPlatform ?? inferSocialPlatformFromUrl(editingBlock.content) ?? 'x'
+      : undefined;
+
+  const resolvedSocialHandle: string =
+    editingBlock?.type === BlockType.SOCIAL
+      ? editingBlock.socialHandle ?? extractHandleFromUrl(resolvedSocialPlatform, editingBlock.content) ?? ''
+      : '';
+
+  const resolvedSocialOption = getSocialPlatformOption(resolvedSocialPlatform);
+  const resolvedSocialUrl = buildSocialUrl(resolvedSocialPlatform, resolvedSocialHandle);
 
   const fetchLatestFromRSS = async () => {
       const cId = editingBlock?.channelId;
@@ -107,6 +129,115 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
       }
   };
 
+  const autoFillSocialText = (
+    prevPlatform: SocialPlatform | undefined,
+    prevHandle: string,
+    nextPlatform: SocialPlatform,
+    nextHandle: string,
+  ): Partial<Pick<BlockData, 'title' | 'subtext'>> => {
+    if (!editingBlock) return {};
+    const prevLabel = getSocialPlatformOption(prevPlatform)?.label;
+    const nextLabel = getSocialPlatformOption(nextPlatform)?.label;
+
+    const prevAutoSub = getSocialDisplayHandle(prevPlatform, prevHandle);
+    const nextAutoSub = getSocialDisplayHandle(nextPlatform, nextHandle);
+
+    const title =
+      !editingBlock.title || editingBlock.title === 'Social' || (prevLabel && editingBlock.title === prevLabel)
+        ? nextLabel ?? editingBlock.title
+        : editingBlock.title;
+
+    const subtext =
+      !editingBlock.subtext || (prevAutoSub && editingBlock.subtext === prevAutoSub)
+        ? nextAutoSub || editingBlock.subtext
+        : editingBlock.subtext;
+
+    return { title, subtext };
+  };
+
+  const handleSelectSocialPlatform = (platform: SocialPlatform) => {
+    if (!editingBlock || editingBlock.type !== BlockType.SOCIAL) return;
+
+    const prevPlatform = resolvedSocialPlatform;
+    const prevHandle = resolvedSocialHandle;
+    const prevKind = getSocialPlatformOption(prevPlatform)?.kind;
+    const nextKind = getSocialPlatformOption(platform)?.kind;
+
+    const nextHandleRaw = prevKind !== nextKind ? '' : prevHandle;
+    const nextHandle = normalizeSocialHandle(platform, nextHandleRaw);
+    const nextUrl = buildSocialUrl(platform, nextHandle);
+
+    const { title, subtext } = autoFillSocialText(prevPlatform, prevHandle, platform, nextHandle);
+
+    updateBlock({
+      ...editingBlock,
+      socialPlatform: platform,
+      socialHandle: nextHandle,
+      content: nextUrl,
+      title,
+      subtext,
+
+      // Switch to platform mode => disable YouTube preview mode
+      channelId: undefined,
+      youtubeVideoId: undefined,
+      youtubeVideos: undefined,
+      youtubeMode: undefined,
+      channelTitle: undefined,
+    });
+  };
+
+  const handleChangeSocialInput = (rawInput: string) => {
+    if (!editingBlock || editingBlock.type !== BlockType.SOCIAL) return;
+
+    // Allow pasting full URLs
+    if (/^https?:\/\//i.test(rawInput.trim())) {
+      const inferred = inferSocialPlatformFromUrl(rawInput) ?? 'custom';
+      const extracted = extractHandleFromUrl(inferred, rawInput);
+      const nextHandle = normalizeSocialHandle(inferred, extracted ?? rawInput);
+
+      const nextUrl = extracted ? buildSocialUrl(inferred, nextHandle) : buildSocialUrl('custom', rawInput);
+      const { title, subtext } = autoFillSocialText(resolvedSocialPlatform, resolvedSocialHandle, inferred, nextHandle);
+
+      updateBlock({
+        ...editingBlock,
+        socialPlatform: inferred,
+        socialHandle: nextHandle,
+        content: nextUrl,
+        title,
+        subtext,
+
+        // Keep this in platform mode if user is pasting URLs
+        channelId: undefined,
+        youtubeVideoId: undefined,
+        youtubeVideos: undefined,
+        youtubeMode: undefined,
+        channelTitle: undefined,
+      });
+      return;
+    }
+
+    const platform = resolvedSocialPlatform ?? 'x';
+    const nextHandle = normalizeSocialHandle(platform, rawInput);
+    const nextUrl = buildSocialUrl(platform, nextHandle);
+    const { title, subtext } = autoFillSocialText(platform, resolvedSocialHandle, platform, nextHandle);
+
+    updateBlock({
+      ...editingBlock,
+      socialPlatform: platform,
+      socialHandle: nextHandle,
+      content: nextUrl,
+      title,
+      subtext,
+
+      // Platform mode
+      channelId: undefined,
+      youtubeVideoId: undefined,
+      youtubeVideos: undefined,
+      youtubeMode: undefined,
+      channelTitle: undefined,
+    });
+  };
+
   const isSelectedColor = (c: any) => {
       if(!editingBlock) return false;
       if (editingBlock.customBackground) return editingBlock.customBackground === c.hex;
@@ -153,23 +284,93 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                   </div>
                 )}
 
-                {/* 2. SOCIAL BLOCK: Platform Selector */}
-                {editingBlock.type === BlockType.SOCIAL && (
-                    <div className="p-1 bg-gray-100 rounded-xl flex mb-4">
-                        <button 
-                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${!isYouTubeActive ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}
-                            onClick={() => updateBlock({...editingBlock, channelId: undefined, youtubeVideoId: undefined})}
-                        >
-                            Generic Link
-                        </button>
-                        <button 
-                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${isYouTubeActive ? 'bg-red-500 shadow text-white' : 'text-gray-500 hover:text-red-600'}`}
-                            onClick={() => updateBlock({...editingBlock, channelId: 'UCRlsJWh1XwmNGxZPFgJ0Zlw', youtubeMode: 'single'})} 
-                        >
-                            <Youtube size={14} /> YouTube
-                        </button>
-                    </div>
-                )}
+	                {/* 2. SOCIAL BLOCK: Mode + Platform */}
+	                {editingBlock.type === BlockType.SOCIAL && (
+	                  <div className="space-y-4">
+	                    <div className="p-1 bg-gray-100 rounded-xl flex">
+	                      <button
+	                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${!isYouTubeActive ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}
+	                        onClick={() =>
+	                          updateBlock({
+	                            ...editingBlock,
+	                            channelId: undefined,
+	                            youtubeVideoId: undefined,
+	                            youtubeVideos: undefined,
+	                            youtubeMode: undefined,
+	                            channelTitle: undefined,
+	                          })
+	                        }
+	                      >
+	                        Platforms
+	                      </button>
+	                      <button
+	                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${isYouTubeActive ? 'bg-red-500 shadow text-white' : 'text-gray-500 hover:text-red-600'}`}
+	                        onClick={() =>
+	                          updateBlock({
+	                            ...editingBlock,
+	                            socialPlatform: 'youtube',
+	                            channelId: editingBlock.channelId || 'UCRlsJWh1XwmNGxZPFgJ0Zlw',
+	                            youtubeMode: editingBlock.youtubeMode || 'single',
+	                          })
+	                        }
+	                      >
+	                        <Youtube size={14} /> YouTube
+	                      </button>
+	                    </div>
+
+	                    {!isYouTubeActive && (
+	                      <div className="space-y-4">
+	                        <div>
+	                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Platform</label>
+	                          <div className="grid grid-cols-3 gap-2">
+	                            {SOCIAL_PLATFORM_OPTIONS.map((platform) => {
+	                              const active = platform.id === resolvedSocialPlatform;
+	                              return (
+	                                <button
+	                                  key={platform.id}
+	                                  type="button"
+	                                  onClick={() => handleSelectSocialPlatform(platform.id)}
+	                                  className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2 ${active ? 'bg-gray-900 text-white border-gray-900 shadow-md' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+	                                  title={platform.label}
+	                                >
+	                                  <platform.icon size={16} className={active ? 'text-white' : 'text-gray-500'} />
+	                                  <span className="text-[11px] font-semibold leading-tight truncate">{platform.label}</span>
+	                                </button>
+	                              );
+	                            })}
+	                          </div>
+	                        </div>
+
+	                        <div>
+	                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+	                            {resolvedSocialOption?.kind === 'url' ? 'URL' : 'Username / Handle'}
+	                          </label>
+	                          <input
+	                            type="text"
+	                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 focus:ring-2 focus:ring-black/5 focus:border-black focus:outline-none transition-all font-medium text-gray-600"
+	                            value={resolvedSocialHandle}
+	                            onChange={(e) => handleChangeSocialInput(e.target.value)}
+	                            placeholder={resolvedSocialOption?.placeholder ?? 'yourhandle'}
+	                          />
+	                        </div>
+
+	                        {resolvedSocialUrl && (
+	                          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+	                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Resolved Link</p>
+	                            <a
+	                              href={resolvedSocialUrl}
+	                              target="_blank"
+	                              rel="noreferrer"
+	                              className="text-xs font-semibold text-gray-700 hover:text-black break-all underline"
+	                            >
+	                              {resolvedSocialUrl}
+	                            </a>
+	                          </div>
+	                        )}
+	                      </div>
+	                    )}
+	                  </div>
+	                )}
 
                 {/* 3. YOUTUBE SPECIFIC INPUTS */}
                 {isYouTubeActive && (
@@ -228,12 +429,12 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                      </div>
                 )}
 
-                {/* 4. CONTENT FIELDS (Standard) */}
-                {(!isYouTubeActive && (editingBlock.type === BlockType.LINK || editingBlock.type === BlockType.SOCIAL || editingBlock.type === BlockType.IMAGE || editingBlock.type === BlockType.MAP)) && (
-                    <div>
-                         {/* Image Upload for Block */}
-                         {(editingBlock.type === BlockType.IMAGE || editingBlock.type === BlockType.LINK) && (
-                             <div className="mb-4">
+	                {/* 4. CONTENT FIELDS (Standard) */}
+	                {(editingBlock.type === BlockType.LINK || editingBlock.type === BlockType.IMAGE || editingBlock.type === BlockType.MAP) && (
+	                    <div>
+	                         {/* Image Upload for Block */}
+	                         {(editingBlock.type === BlockType.IMAGE || editingBlock.type === BlockType.LINK) && (
+	                             <div className="mb-4">
                                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Upload Image {editingBlock.type === BlockType.LINK ? '(Optional Background)' : ''}</label>
                                 <div className="relative group cursor-pointer border-2 border-dashed border-gray-300 rounded-xl p-4 hover:border-black transition-colors" onClick={() => document.getElementById('block-img-upload')?.click()}>
                                     <input id="block-img-upload" type="file" className="hidden" accept="image/*" onChange={handleBlockImageUpload} />
@@ -399,15 +600,40 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                     </div>
                 </div>
 
-                <div>
-                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Bio</label>
-                   <textarea 
-                      value={profile.bio} onChange={(e) => setProfile({...profile, bio: e.target.value})}
-                      className="w-full bg-gray-50/80 border border-gray-200 rounded-xl p-3.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 focus:outline-none h-24 resize-none text-sm leading-relaxed transition-all"
-                      placeholder="Tell your story..."
-                   />
-                </div>
-             </section>
+	                <div>
+	                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Bio</label>
+	                   <textarea 
+	                      value={profile.bio} onChange={(e) => setProfile({...profile, bio: e.target.value})}
+	                      className="w-full bg-gray-50/80 border border-gray-200 rounded-xl p-3.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 focus:outline-none h-24 resize-none text-sm leading-relaxed transition-all"
+	                      placeholder="Tell your story..."
+	                   />
+	                </div>
+
+	                <div>
+	                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Branding</label>
+	                   <div className="flex items-center justify-between gap-4 p-4 bg-white border border-gray-100 rounded-2xl">
+	                      <div className="min-w-0">
+	                        <p className="text-sm font-semibold text-gray-900">Show OpenBento credit</p>
+	                        <p className="text-xs text-gray-400">Displays the OpenBento footer in the builder and export.</p>
+	                      </div>
+	                      <button
+	                        type="button"
+	                        onClick={() => setProfile({ ...profile, showBranding: !(profile.showBranding !== false) })}
+	                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+	                          profile.showBranding !== false ? 'bg-gray-900' : 'bg-gray-200'
+	                        }`}
+	                        aria-pressed={profile.showBranding !== false}
+	                        aria-label="Toggle OpenBento branding"
+	                      >
+	                        <span
+	                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+	                            profile.showBranding !== false ? 'translate-x-6' : 'translate-x-1'
+	                          }`}
+	                        />
+	                      </button>
+	                   </div>
+	                </div>
+	             </section>
 
              <section className="space-y-5">
                 <div className="flex items-center gap-2">
@@ -438,13 +664,15 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
              </section>
           </div>
         )}
-      </div>
+	      </div>
 
-      <div className="p-4 bg-gradient-to-r from-gray-50 to-white border-t border-gray-100">
-         <p className="text-xs text-center text-gray-400 font-medium">OpenBento &bull; Open Source</p>
-      </div>
-    </div>
-  );
+	      {profile.showBranding !== false && (
+	        <div className="p-4 bg-gradient-to-r from-gray-50 to-white border-t border-gray-100">
+	           <p className="text-xs text-center text-gray-400 font-medium">OpenBento &bull; Open Source</p>
+	        </div>
+	      )}
+	    </div>
+	  );
 };
 
 export default EditorSidebar;

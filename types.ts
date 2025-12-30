@@ -7,6 +7,31 @@ export enum BlockType {
   SPACER = 'SPACER'
 }
 
+export type SocialPlatform =
+  | 'x'
+  | 'instagram'
+  | 'tiktok'
+  | 'youtube'
+  | 'github'
+  | 'gitlab'
+  | 'linkedin'
+  | 'facebook'
+  | 'twitch'
+  | 'dribbble'
+  | 'medium'
+  | 'devto'
+  | 'reddit'
+  | 'pinterest'
+  | 'threads'
+  | 'bluesky'
+  | 'mastodon'
+  | 'substack'
+  | 'patreon'
+  | 'kofi'
+  | 'buymeacoffee'
+  | 'website'
+  | 'custom';
+
 export interface BlockData {
   id: string;
   type: BlockType;
@@ -31,6 +56,10 @@ export interface BlockData {
   channelTitle?: string;
   youtubeMode?: 'single' | 'grid' | 'list';
   youtubeVideos?: Array<{ id: string; title: string; thumbnail: string }>;
+
+  // Social platform (non-YouTube mode)
+  socialPlatform?: SocialPlatform;
+  socialHandle?: string; // Stored without leading '@' when possible
 }
 
 export interface UserProfile {
@@ -39,6 +68,7 @@ export interface UserProfile {
   avatarUrl: string;
   theme: 'light' | 'dark';
   primaryColor: string;
+  showBranding?: boolean;
 }
 
 export interface SiteData {

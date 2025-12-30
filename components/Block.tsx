@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BlockData, BlockType } from '../types';
 import { ArrowUpRight, MapPin, Type, Image as ImageIcon, Link as LinkIcon, Twitter, Github, Linkedin, Youtube, Instagram, GripHorizontal, MoveVertical, Play, Loader2, ExternalLink } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getSocialPlatformOption, inferSocialPlatformFromUrl } from '../socialPlatforms';
 
 interface BlockProps {
   block: BlockData;
@@ -62,7 +63,17 @@ const Block: React.FC<BlockProps> = ({ block, isSelected, isDragTarget, isDraggi
   const getIcon = () => {
     switch (block.type) {
       case BlockType.SOCIAL:
-        if (block.channelId || block.title?.toLowerCase().includes('youtube') || block.content?.includes('youtube') || block.content?.includes('youtu.be')) return <Youtube className="w-5 h-5" />;
+        if (block.channelId || block.title?.toLowerCase().includes('youtube') || block.content?.includes('youtube') || block.content?.includes('youtu.be')) {
+          return <Youtube className="w-5 h-5" />;
+        }
+
+        {
+          const platform = block.socialPlatform ?? inferSocialPlatformFromUrl(block.content);
+          const PlatformIcon = platform ? getSocialPlatformOption(platform)?.icon : undefined;
+          if (PlatformIcon) return <PlatformIcon className="w-5 h-5" />;
+        }
+
+        // Backward-compatible heuristics for older saved data
         if (block.content?.includes('twitter') || block.content?.includes('x.com')) return <Twitter className="w-5 h-5" />;
         if (block.content?.includes('github')) return <Github className="w-5 h-5" />;
         if (block.content?.includes('linkedin')) return <Linkedin className="w-5 h-5" />;
