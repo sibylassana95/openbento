@@ -1215,7 +1215,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
                         avatarInputRef.current?.click();
                       }}
                       className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors"
-                      title="Changer l'image"
+                      title="Change image"
                     >
                       <Camera size={22} className="text-white" />
                     </button>
@@ -1226,7 +1226,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
                         setShowAvatarStyleModal(true);
                       }}
                       className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors"
-                      title="Modifier le style"
+                      title="Edit style"
                     >
                       <Palette size={22} className="text-white" />
                     </button>
@@ -1597,7 +1597,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
                                             whileTap={{ scale: 0.99 }}
                                         >
                                             <Plus size={18} className="group-hover:rotate-90 transition-transform" />
-                                            <span className="text-sm font-medium">Ajouter des lignes</span>
+                                            <span className="text-sm font-medium">Add more rows</span>
                                         </motion.button>
                                     </motion.main>
                                 );
@@ -1694,7 +1694,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
       <ImageCropModal
         isOpen={showAvatarCropModal && !!pendingAvatarSrc}
         src={pendingAvatarSrc || ''}
-        title="Recadrer la photo de profil"
+        title="Crop profile photo"
         onCancel={() => {
           setShowAvatarCropModal(false);
           setPendingAvatarSrc(null);

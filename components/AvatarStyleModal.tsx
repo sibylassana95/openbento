@@ -76,8 +76,8 @@ const AvatarStyleModal: React.FC<AvatarStyleModalProps> = ({
             {/* Header */}
             <div className="p-5 pb-4 flex justify-between items-start border-b border-gray-100">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">Style de la photo</h2>
-                <p className="text-gray-500 text-sm mt-0.5">Personnalisez l'apparence</p>
+                <h2 className="text-lg font-bold text-gray-900">Photo Style</h2>
+                <p className="text-gray-500 text-sm mt-0.5">Customize appearance</p>
               </div>
               <button
                 onClick={onClose}
@@ -104,13 +104,13 @@ const AvatarStyleModal: React.FC<AvatarStyleModalProps> = ({
               {/* Shape */}
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
-                  Forme
+                  Shape
                 </label>
                 <div className="flex gap-2">
                   {[
-                    { value: 'circle', icon: Circle, label: 'Cercle' },
-                    { value: 'rounded', icon: RectangleHorizontal, label: 'Arrondi' },
-                    { value: 'square', icon: Square, label: 'Carré' },
+                    { value: 'circle', icon: Circle, label: 'Circle' },
+                    { value: 'rounded', icon: RectangleHorizontal, label: 'Rounded' },
+                    { value: 'square', icon: Square, label: 'Square' },
                   ].map(({ value, icon: Icon, label }) => (
                     <button
                       key={value}
@@ -132,7 +132,7 @@ const AvatarStyleModal: React.FC<AvatarStyleModalProps> = ({
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
                 <div className="flex items-center gap-3">
                   <Sun size={18} className="text-gray-500" />
-                  <span className="text-sm font-semibold text-gray-700">Ombre portée</span>
+                  <span className="text-sm font-semibold text-gray-700">Drop shadow</span>
                 </div>
                 <button
                   onClick={() => updateStyle({ shadow: !currentStyle.shadow })}
@@ -153,7 +153,7 @@ const AvatarStyleModal: React.FC<AvatarStyleModalProps> = ({
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
                   <div className="flex items-center gap-3">
                     <Minus size={18} className="text-gray-500" />
-                    <span className="text-sm font-semibold text-gray-700">Contour</span>
+                    <span className="text-sm font-semibold text-gray-700">Border</span>
                   </div>
                   <button
                     onClick={() => updateStyle({ border: !currentStyle.border })}
@@ -179,7 +179,7 @@ const AvatarStyleModal: React.FC<AvatarStyleModalProps> = ({
                   >
                     {/* Border color */}
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-medium text-gray-500 w-16">Couleur</span>
+                      <span className="text-xs font-medium text-gray-500 w-16">Color</span>
                       <div className="flex gap-2">
                         {['#ffffff', '#000000', '#6366f1', '#ec4899', '#10b981', '#f59e0b'].map((color) => (
                           <button
@@ -198,7 +198,7 @@ const AvatarStyleModal: React.FC<AvatarStyleModalProps> = ({
 
                     {/* Border width */}
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-medium text-gray-500 w-16">Épaisseur</span>
+                      <span className="text-xs font-medium text-gray-500 w-16">Width</span>
                       <div className="flex gap-2">
                         {[2, 3, 4, 6].map((width) => (
                           <button
@@ -226,7 +226,7 @@ const AvatarStyleModal: React.FC<AvatarStyleModalProps> = ({
                 onClick={onClose}
                 className="w-full py-2.5 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-colors"
               >
-                Appliquer
+                Apply
               </button>
             </div>
           </motion.div>

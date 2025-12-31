@@ -95,7 +95,7 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
 
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
-    return date.toLocaleDateString('fr-FR', { 
+    return date.toLocaleDateString('en-US', { 
       day: 'numeric', 
       month: 'short'
     });
