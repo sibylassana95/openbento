@@ -1,7 +1,9 @@
 import JSZip from 'jszip';
 import saveAs from 'file-saver';
-import { SiteData, BlockData, BlockType } from '../types';
+import { SiteData, BlockData, BlockType, SocialPlatform } from '../types';
 import { GITHUB_WORKFLOW_YAML, BASE_COLORS } from '../constants';
+import { COMMON_BLOCK_CSS } from './commonStyles';
+import { buildSocialUrl, formatFollowerCount, getSocialPlatformOption } from '../socialPlatforms';
 
 // --- HELPERS ---
 
@@ -34,12 +36,73 @@ function getStyleFromClass(className: string | undefined, type: 'bg' | 'text'): 
     return type === 'bg' ? '#ffffff' : '#000000';
 }
 
+const SIMPLE_ICON_SLUGS: Partial<Record<SocialPlatform, string>> = {
+  x: 'x',
+  instagram: 'instagram',
+  tiktok: 'tiktok',
+  youtube: 'youtube',
+  github: 'github',
+  gitlab: 'gitlab',
+  linkedin: 'linkedin',
+  facebook: 'facebook',
+  twitch: 'twitch',
+  dribbble: 'dribbble',
+  medium: 'medium',
+  devto: 'devdotto',
+  reddit: 'reddit',
+  pinterest: 'pinterest',
+  threads: 'threads',
+  bluesky: 'bluesky',
+  mastodon: 'mastodon',
+  substack: 'substack',
+  patreon: 'patreon',
+  kofi: 'kofi',
+  buymeacoffee: 'buymeacoffee',
+  snapchat: 'snapchat',
+  discord: 'discord',
+  telegram: 'telegram',
+  whatsapp: 'whatsapp',
+};
+
+const getSimpleIconSrc = (platform: SocialPlatform | undefined, color?: string) => {
+  if (!platform) return '';
+  const slug = SIMPLE_ICON_SLUGS[platform];
+  if (!slug) return '';
+  const sanitized = color ? color.replace('#', '').trim() : '';
+  return sanitized ? `https://cdn.simpleicons.org/${slug}/${sanitized}` : `https://cdn.simpleicons.org/${slug}`;
+};
+
+const resolveIconColor = (textColor?: string, brandColor?: string) => {
+  if (!textColor || textColor === 'text-brand') return brandColor;
+  if (textColor === 'text-black') return '#000000';
+  if (textColor === 'text-white') return '#ffffff';
+  if (textColor === 'text-gray-700') return '#374151';
+  if (textColor === 'text-gray-900') return '#111827';
+  return brandColor;
+};
+
 // --- CONTENT GENERATORS ---
 
-const generateCSS = (profileName: string) => `
+interface BackgroundConfig {
+  backgroundColor?: string;
+  backgroundImage?: string;
+  backgroundBlur?: number;
+}
+
+const generateCSS = (profileName: string, bgConfig?: BackgroundConfig) => {
+  const bgColor = bgConfig?.backgroundColor || '#f8fafc';
+  const bgImage = bgConfig?.backgroundImage;
+  const bgBlur = bgConfig?.backgroundBlur || 0;
+
+  const bodyBackground = bgImage
+    ? `background-image: url('${bgImage}'); background-size: cover; background-position: center; background-attachment: fixed;`
+    : `background: ${bgColor};`;
+
+  return `
+${COMMON_BLOCK_CSS}
 :root {
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  --bg-color: linear-gradient(135deg, #f8f9fa 0%, #f3f4f6 50%, #f0f1f3 100%);
+  --bg-color: ${bgColor};
   --text-main: #111827;
   --text-muted: #6b7280;
   --radius: 1.75rem;
@@ -50,33 +113,21 @@ const generateCSS = (profileName: string) => `
 
 body {
   font-family: var(--font-family);
-  background: var(--bg-color);
+  ${bodyBackground}
   color: var(--text-main);
   min-height: 100vh;
-  opacity: 0; 
+  opacity: 0;
   animation: fadeInBody 0.8s ease-out forwards;
   position: relative;
 }
 
-body::before {
-  content: '';
+/* Background blur overlay */
+.bg-blur-overlay {
   position: fixed;
-  top: 0;
-  right: 0;
-  width: 50%;
-  height: 50%;
-  background: radial-gradient(circle at top right, rgba(139, 92, 246, 0.08), transparent 50%);
-  pointer-events: none;
-}
-
-body::after {
-  content: '';
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 50%;
-  height: 50%;
-  background: radial-gradient(circle at bottom left, rgba(251, 191, 36, 0.06), transparent 50%);
+  inset: 0;
+  z-index: 0;
+  backdrop-filter: blur(${bgBlur}px);
+  -webkit-backdrop-filter: blur(${bgBlur}px);
   pointer-events: none;
 }
 
@@ -96,7 +147,7 @@ body::after {
 
 /* Left Profile */
 .profile-section {
-  padding: 4rem 2rem;
+  padding: 2rem 1rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -105,16 +156,28 @@ body::after {
   z-index: 20;
 }
 
+@media (min-width: 640px) {
+  .profile-section { padding: 3rem 1.5rem; }
+}
+
+@media (min-width: 1024px) {
+  .profile-section { padding: 4rem 2rem; }
+}
+
 .avatar {
-  width: 9rem;
-  height: 9rem;
-  border-radius: 1.5rem;
+  width: 6rem;
+  height: 6rem;
+  border-radius: 1rem;
   overflow: hidden;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
   box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15);
-  border: 4px solid white;
-  background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+  border: 3px solid white;
+  background: #f3f4f6;
   transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@media (min-width: 640px) {
+  .avatar { width: 7rem; height: 7rem; border-radius: 1.25rem; margin-bottom: 1.25rem; }
 }
 
 .avatar:hover {
@@ -134,24 +197,91 @@ body::after {
 }
 
 .profile-name {
-  font-size: 2.5rem;
+  font-size: 1.5rem;
   font-weight: 800;
   letter-spacing: -0.04em;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
   line-height: 1;
-  background: linear-gradient(135deg, #111827, #374151);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-main);
 }
 
 .profile-bio {
-  font-size: 1rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
   white-space: pre-wrap;
   max-width: 20rem;
-  line-height: 1.7;
+  line-height: 1.5;
   font-weight: 500;
+}
+
+@media (min-width: 640px) {
+  .profile-name { font-size: 2rem; margin-bottom: 0.6rem; }
+  .profile-bio { font-size: 0.9rem; line-height: 1.6; }
+}
+
+@media (min-width: 1024px) {
+  .profile-name { font-size: 2.5rem; margin-bottom: 0.75rem; }
+  .profile-bio { font-size: 1rem; line-height: 1.7; }
+}
+
+.profile-socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  justify-content: center;
+}
+
+.profile-social {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  background: #ffffff;
+  text-decoration: none;
+  color: var(--text-main);
+  font-weight: 600;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.profile-social.icon-only {
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  justify-content: center;
+}
+
+.profile-social:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.12);
+}
+
+.profile-social .social-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.profile-social .social-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.profile-social .social-fallback {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.profile-social .social-count {
+  font-size: 0.85rem;
+  color: var(--text-main);
 }
 
 /* Right Grid */
@@ -164,7 +294,7 @@ body::after {
   display: grid;
   grid-template-columns: 1fr; /* Mobile default */
   gap: var(--gap);
-  grid-auto-rows: 180px;
+  grid-auto-rows: 64px;
   grid-auto-flow: dense;
   padding-bottom: 2rem;
 }
@@ -198,14 +328,30 @@ body::after {
 .bento-item:nth-child(7) { animation-delay: 0.4s; }
 .bento-item:nth-child(8) { animation-delay: 0.45s; }
 
-.bento-item:hover {
-  transform: translateY(-6px) scale(1.01);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  z-index: 10;
+/* Apple TV 3D tilt effect */
+.bento-item {
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.bento-item::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at var(--glare-x, 50%) var(--glare-y, 50%), rgba(255,255,255,0.25) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.bento-item:hover::before {
+  opacity: 1;
 }
 
 .bento-item:active {
-  transform: scale(0.98);
+  transform: perspective(800px) rotateX(0deg) rotateY(0deg) scale3d(0.95, 0.95, 0.95) !important;
 }
 
 .bento-item.no-hover:hover {
@@ -214,9 +360,36 @@ body::after {
   cursor: default;
 }
 
+.social-icon-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.social-icon-block .social-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.social-icon-block .social-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.social-icon-block .social-fallback {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: currentColor;
+}
+
 /* Inner Content Layouts */
 .content-wrapper {
-  padding: 1.75rem;
+  padding: 0.75rem;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -225,10 +398,22 @@ body::after {
   z-index: 10;
 }
 
+@media (min-width: 640px) {
+  .content-wrapper { padding: 1rem; }
+}
+
+@media (min-width: 1024px) {
+  .content-wrapper { padding: 1.75rem; }
+}
+
+.content-wrapper.link-only {
+  justify-content: flex-end;
+}
+
 .icon-box {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 1rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
   background: rgba(255, 255, 255, 0.9);
   display: flex;
   align-items: center;
@@ -236,33 +421,103 @@ body::after {
   box-shadow: 0 4px 6px rgba(0,0,0,0.05);
 }
 
+.icon-box img {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+}
+
+.icon-box .icon-fallback {
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+@media (min-width: 640px) {
+  .icon-box { width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; }
+  .icon-box img { width: 1.2rem; height: 1.2rem; }
+  .icon-box .icon-fallback { font-size: 0.75rem; }
+}
+
+@media (min-width: 1024px) {
+  .icon-box { width: 3rem; height: 3rem; border-radius: 1rem; }
+  .icon-box img { width: 1.4rem; height: 1.4rem; }
+  .icon-box .icon-fallback { font-size: 0.85rem; }
+}
+
 .block-title {
   font-weight: 800;
-  font-size: 1.25rem;
+  font-size: 0.85rem;
   line-height: 1.1;
   letter-spacing: -0.02em;
 }
 
 .block-sub {
   opacity: 0.8;
-  font-size: 0.9rem;
-  margin-top: 0.35rem;
+  font-size: 0.7rem;
+  margin-top: 0.25rem;
   font-weight: 500;
+}
+
+@media (min-width: 640px) {
+  .block-title { font-size: 1rem; }
+  .block-sub { font-size: 0.8rem; margin-top: 0.3rem; }
+}
+
+@media (min-width: 1024px) {
+  .block-title { font-size: 1.25rem; }
+  .block-sub { font-size: 0.9rem; margin-top: 0.35rem; }
 }
 
 /* Specific Types */
 .type-text { justify-content: center; }
-.type-text h3 { font-size: 1.75rem; margin-bottom: 0.5rem; letter-spacing: -0.03em; }
+.type-text .block-title { font-size: 1rem; margin-bottom: 0.35rem; letter-spacing: -0.03em; }
+.type-text .block-body { opacity: 0.8; line-height: 1.5; font-size: 0.75rem; }
+
+@media (min-width: 640px) {
+  .type-text .block-title { font-size: 1.35rem; margin-bottom: 0.4rem; }
+  .type-text .block-body { font-size: 0.9rem; }
+}
+
+@media (min-width: 1024px) {
+  .type-text .block-title { font-size: 1.75rem; margin-bottom: 0.5rem; }
+  .type-text .block-body { font-size: 1.1rem; line-height: 1.6; }
+}
+
+/* Smaller blocks: reduce text sizes */
+.bento-item.size-xs .block-title { font-size: 0.7rem; }
+.bento-item.size-xs .block-sub { font-size: 0.55rem; }
+.bento-item.size-xs .block-body { font-size: 0.65rem; }
+.bento-item.size-xs .type-text .block-title { font-size: 0.8rem; }
+
+.bento-item.size-sm .block-title { font-size: 0.8rem; }
+.bento-item.size-sm .block-sub { font-size: 0.65rem; }
+.bento-item.size-sm .block-body { font-size: 0.75rem; }
+.bento-item.size-sm .type-text .block-title { font-size: 1rem; }
+
+@media (min-width: 640px) {
+  .bento-item.size-xs .block-title { font-size: 0.85rem; }
+  .bento-item.size-xs .block-sub { font-size: 0.65rem; }
+  .bento-item.size-xs .type-text .block-title { font-size: 1rem; }
+  .bento-item.size-sm .block-title { font-size: 0.95rem; }
+  .bento-item.size-sm .block-sub { font-size: 0.75rem; }
+  .bento-item.size-sm .type-text .block-title { font-size: 1.2rem; }
+}
+
+@media (min-width: 1024px) {
+  .bento-item.size-xs .block-title { font-size: 0.95rem; }
+  .bento-item.size-xs .block-sub { font-size: 0.7rem; }
+  .bento-item.size-xs .block-body { font-size: 0.85rem; }
+  .bento-item.size-xs .type-text .block-title { font-size: 1.1rem; }
+  .bento-item.size-sm .block-title { font-size: 1.05rem; }
+  .bento-item.size-sm .block-sub { font-size: 0.8rem; }
+  .bento-item.size-sm .block-body { font-size: 0.95rem; }
+  .bento-item.size-sm .type-text .block-title { font-size: 1.35rem; }
+}
 
 .full-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
   position: absolute;
   top: 0; left: 0;
-  transition: transform 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-.bento-item:hover .full-img { transform: scale(1.08); }
 
 /* YouTube Adaptive Styles */
 .yt-container {
@@ -289,12 +544,12 @@ body::after {
   width: 2rem;
   height: 2rem;
   border-radius: 0.5rem;
-  background: linear-gradient(135deg, #ef4444, #dc2626);
+  background: #dc2626;
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
   flex-shrink: 0;
 }
 
@@ -400,7 +655,7 @@ body::after {
 .yt-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%);
+  background: rgba(0,0,0,0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -472,7 +727,7 @@ body::after {
 .yt-single-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.15) 100%);
+  background: rgba(0,0,0,0.55);
 }
 
 .yt-single-content {
@@ -588,8 +843,16 @@ footer a:hover {
 }
 
 @media (min-width: 640px) {
-  .bento-grid { grid-template-columns: repeat(2, 1fr); }
+  .bento-grid { grid-template-columns: repeat(9, 1fr); }
+  .col-span-1 { grid-column: span 1; }
   .col-span-2 { grid-column: span 2; }
+  .col-span-3 { grid-column: span 3; }
+  .col-span-4 { grid-column: span 4; }
+  .col-span-5 { grid-column: span 5; }
+  .col-span-6 { grid-column: span 6; }
+  .col-span-7 { grid-column: span 7; }
+  .col-span-8 { grid-column: span 8; }
+  .col-span-9 { grid-column: span 9; }
   .row-span-2 { grid-row: span 2; }
 }
 
@@ -607,16 +870,168 @@ footer a:hover {
   .grid-section { padding: 6rem 4rem 4rem; }
   .avatar { width: 12rem; height: 12rem; }
   .profile-name { font-size: 3rem; }
+  .profile-socials { justify-content: flex-start; }
 }
 
-@media (min-width: 1280px) {
-  .bento-grid { grid-template-columns: repeat(3, 1fr); }
-  .col-span-3 { grid-column: span 3; }
-}
 `;
+};
 
-const generateJS = () => `
+// SECURITY: Escape HTML special characters to prevent XSS
+const escapeHtml = (value: string | undefined | null): string => {
+  if (!value) return '';
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+};
+
+const escapeAttr = (value: string) => escapeHtml(value);
+
+const generateJS = (opts: { analytics?: { enabled: boolean; supabaseUrl: string; anonKey: string; siteId: string } }) => `
 document.addEventListener('DOMContentLoaded', () => {
+    // --- Apple TV 3D Tilt Effect ---
+    const bentoItems = document.querySelectorAll('.bento-item:not(.no-hover)');
+
+    bentoItems.forEach(item => {
+        item.addEventListener('mousemove', (e) => {
+            const rect = item.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+
+            // Calculate rotation (max 10 degrees for subtle Apple TV effect)
+            const rotateX = ((y - centerY) / centerY) * -10;
+            const rotateY = ((x - centerX) / centerX) * 10;
+
+            // Calculate glare position
+            const glareX = (x / rect.width) * 100;
+            const glareY = (y / rect.height) * 100;
+
+            // Dynamic shadow based on tilt direction
+            const shadowX = rotateY * 1.5;
+            const shadowY = rotateX * -1.5;
+
+            item.style.transform = \`perspective(800px) rotateX(\${rotateX}deg) rotateY(\${rotateY}deg) scale3d(1.02, 1.02, 1.02)\`;
+            item.style.boxShadow = \`\${shadowX}px \${shadowY}px 25px rgba(0,0,0,0.15), 0 8px 30px rgba(0,0,0,0.1)\`;
+            item.style.transition = 'transform 0.1s ease-out, box-shadow 0.1s ease-out';
+            item.style.setProperty('--glare-x', glareX + '%');
+            item.style.setProperty('--glare-y', glareY + '%');
+        });
+
+        item.addEventListener('mouseleave', () => {
+            item.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
+            item.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+            item.style.transition = 'transform 0.5s ease-out, box-shadow 0.5s ease-out';
+        });
+
+        item.addEventListener('mouseenter', () => {
+            item.style.transition = 'transform 0.1s ease-out, box-shadow 0.1s ease-out';
+        });
+    });
+
+    // --- Analytics (page views + outbound clicks via Supabase REST API) ---
+    const analytics = ${opts.analytics ? JSON.stringify(opts.analytics) : 'null'};
+
+    // Generate unique visitor ID (persisted in localStorage)
+    const getVisitorId = () => {
+        let id = localStorage.getItem('_ob_vid');
+        if (!id) {
+            id = 'v_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+            localStorage.setItem('_ob_vid', id);
+        }
+        return id;
+    };
+
+    // Session tracking
+    const sessionStart = Date.now();
+    let maxScroll = 0;
+    let lastActivity = Date.now();
+
+    // Track scroll depth
+    window.addEventListener('scroll', () => {
+        const scrollTop = window.scrollY || document.documentElement.scrollTop;
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        const scrollPercent = docHeight > 0 ? Math.round((scrollTop / docHeight) * 100) : 0;
+        maxScroll = Math.max(maxScroll, scrollPercent);
+        lastActivity = Date.now();
+    }, { passive: true });
+
+    const track = async (eventType, extra = {}) => {
+        if (!analytics || !analytics.supabaseUrl || !analytics.anonKey) return;
+        try {
+            const utm = new URLSearchParams(window.location.search);
+            const payload = {
+                site_id: analytics.siteId,
+                event_type: eventType,
+                visitor_id: getVisitorId(),
+                session_id: sessionStart.toString(36),
+                page_url: window.location.href,
+                referrer: document.referrer || null,
+                utm_source: utm.get('utm_source') || null,
+                utm_medium: utm.get('utm_medium') || null,
+                utm_campaign: utm.get('utm_campaign') || null,
+                utm_term: utm.get('utm_term') || null,
+                utm_content: utm.get('utm_content') || null,
+                user_agent: navigator.userAgent,
+                language: navigator.language,
+                screen_w: window.screen?.width || null,
+                screen_h: window.screen?.height || null,
+                viewport_w: window.innerWidth || null,
+                viewport_h: window.innerHeight || null,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+                ...extra
+            };
+            const endpoint = analytics.supabaseUrl + '/rest/v1/openbento_analytics_events';
+            const headers = {
+                'Content-Type': 'application/json',
+                'apikey': analytics.anonKey,
+                'Authorization': 'Bearer ' + analytics.anonKey,
+                'Prefer': 'return=minimal'
+            };
+            fetch(endpoint, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload),
+                keepalive: true
+            }).catch(() => {});
+        } catch (_) {}
+    };
+
+    // Track page view
+    track('page_view');
+
+    // Track clicks on bento items
+    document.addEventListener('click', (ev) => {
+        const target = ev.target;
+        if (!(target instanceof Element)) return;
+        const link = target.closest('a.bento-item');
+        if (!link) return;
+        track('click', {
+            block_id: link.getAttribute('data-block-id') || null,
+            destination_url: link.getAttribute('href') || null,
+            block_title: link.querySelector('.block-title')?.textContent || null
+        });
+    }, { capture: true });
+
+    // Track session end (time on page, scroll depth)
+    const trackSessionEnd = () => {
+        const duration = Math.round((Date.now() - sessionStart) / 1000);
+        track('session_end', {
+            duration_seconds: duration,
+            scroll_depth: maxScroll,
+            engaged: duration > 10 && maxScroll > 25
+        });
+    };
+
+    // Send session_end on page unload
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') trackSessionEnd();
+    });
+    window.addEventListener('pagehide', trackSessionEnd);
+
     // YouTube Fetcher
     const fetchers = document.querySelectorAll('.youtube-fetcher');
     fetchers.forEach(async (el) => {
@@ -704,6 +1119,54 @@ document.addEventListener('DOMContentLoaded', () => {
 const generateHtml = (data: SiteData, imageMap: Record<string, string>): string => {
   const { profile, blocks } = data;
   const avatarSrc = imageMap['profile_avatar'] || profile.avatarUrl;
+  const showBranding = profile.showBranding !== false;
+
+  const resolvedAvatarStyle = profile.avatarStyle || {
+    shape: 'rounded',
+    shadow: true,
+    border: true,
+    borderColor: '#ffffff',
+    borderWidth: 4,
+  };
+  const avatarRadius =
+    resolvedAvatarStyle.shape === 'circle'
+      ? '9999px'
+      : resolvedAvatarStyle.shape === 'square'
+        ? '0'
+        : '1.5rem';
+  const avatarShadow = resolvedAvatarStyle.shadow === false
+    ? 'none'
+    : '0 25px 50px -12px rgba(0,0,0,0.15)';
+  const avatarBorder = resolvedAvatarStyle.border === false
+    ? 'none'
+    : `${resolvedAvatarStyle.borderWidth || 4}px solid ${resolvedAvatarStyle.borderColor || '#ffffff'}`;
+  const avatarInlineStyle = `border-radius:${avatarRadius}; box-shadow:${avatarShadow}; border:${avatarBorder};`;
+
+  const socialHeaderHtml = (() => {
+    const accounts = profile.socialAccounts || [];
+    if (!profile.showSocialInHeader || accounts.length === 0) return '';
+
+    const items = accounts.map(account => {
+      const option = getSocialPlatformOption(account.platform);
+      const label = option?.label || account.platform;
+      const url = buildSocialUrl(account.platform, account.handle);
+      const count = profile.showFollowerCount ? formatFollowerCount(account.followerCount) : '';
+      const hasCount = Boolean(count);
+      const iconColor = option?.brandColor;
+      const iconSrc = getSimpleIconSrc(account.platform, iconColor);
+      const fallbackLetter = label.slice(0, 1).toUpperCase();
+      const iconHtml = iconSrc
+        ? `<span class="social-icon"><span class="social-fallback">${escapeHtml(fallbackLetter)}</span><img src="${escapeAttr(iconSrc)}" alt="${escapeAttr(label)}" onerror="this.style.display='none';" /></span>`
+        : `<span class="social-icon"><span class="social-fallback">${escapeHtml(fallbackLetter)}</span></span>`;
+      const countHtml = hasCount ? `<span class="social-count">${escapeHtml(count)}</span>` : '';
+      const cls = hasCount ? 'profile-social' : 'profile-social icon-only';
+      const tag = url ? 'a' : 'div';
+      const href = url ? `href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer"` : '';
+      return `<${tag} class="${cls}" ${href}>${iconHtml}${countHtml}</${tag}>`;
+    });
+
+    return `<div class="profile-socials">${items.join('')}</div>`;
+  })();
   
   // Sort blocks by grid position (row first, then column) for correct visual order
   const sortedBlocks = [...blocks].sort((a, b) => {
@@ -718,6 +1181,8 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
   const renderBlock = (block: BlockData) => {
     let contentHtml = '';
     const blockImageSrc = block.imageUrl ? (imageMap[`block_${block.id}`] || block.imageUrl) : '';
+    let explicitHref: string | null = null;
+    let extraClass = '';
 
     let bgStyle = '';
     if (block.customBackground) {
@@ -728,8 +1193,18 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
 
     const textStyle = getStyleFromClass(block.textColor, 'text');
     
-    const colClass = block.colSpan === 3 ? 'col-span-3' : block.colSpan === 2 ? 'col-span-2' : '';
+    const colSpan = Math.min(block.colSpan, 9);
+    const colClass = `col-span-${colSpan}`;
     const rowClass = block.rowSpan === 2 ? 'row-span-2' : '';
+    const sizeTier = (() => {
+      const minDim = Math.min(block.colSpan, block.rowSpan);
+      const area = block.colSpan * block.rowSpan;
+      if (minDim <= 1 || area <= 4) return 'xs';
+      if (minDim <= 2 || area <= 8) return 'sm';
+      if (minDim <= 3 || area <= 12) return 'md';
+      return 'lg';
+    })();
+    const sizeClass = `size-${sizeTier}`;
     const isSpacer = block.type === BlockType.SPACER;
     const isInteractive = !isSpacer;
 
@@ -743,8 +1218,10 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
         const isSmall = block.colSpan === 1 && block.rowSpan === 1;
         const isTall = block.colSpan === 1 && block.rowSpan >= 2;
         const sizeClass = isLarge ? 'size-large' : (isSmall ? 'size-small' : (isTall ? 'size-tall' : ''));
-        
-        const fetcherAttrs = `data-channel-id="${block.channelId}" data-mode="${mode}" data-size="${sizeClass}"`;
+
+        // SECURITY: Validate channel ID format (UC followed by 22 alphanumeric chars)
+        const safeChannelId = /^UC[a-zA-Z0-9_-]{22}$/.test(block.channelId) ? block.channelId : '';
+        const fetcherAttrs = `data-channel-id="${escapeAttr(safeChannelId)}" data-mode="${escapeAttr(mode)}" data-size="${escapeAttr(sizeClass)}"`;
 
         if (isMulti) {
              const videosToShow = isSmall ? 2 : 4;
@@ -755,7 +1232,7 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
                         <svg width="${isSmall ? 14 : 18}" height="${isSmall ? 14 : 18}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
                     </div>
                     <div class="yt-header-text">
-                        <h3 data-role="channel-title">${block.channelTitle || 'YouTube'}</h3>
+                        <h3 data-role="channel-title">${escapeHtml(block.channelTitle) || 'YouTube'}</h3>
                         <span>Latest Videos</span>
                     </div>
                 </div>
@@ -765,10 +1242,12 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
              </div>`;
         } else {
              const vidId = block.youtubeVideoId || '';
-             const bgUrl = vidId ? `https://img.youtube.com/vi/${vidId}/maxresdefault.jpg` : '';
+             // SECURITY: Validate video ID format (alphanumeric, dash, underscore only)
+             const safeVidId = /^[a-zA-Z0-9_-]+$/.test(vidId) ? vidId : '';
+             const bgUrl = safeVidId ? `https://img.youtube.com/vi/${safeVidId}/maxresdefault.jpg` : '';
              contentHtml = `
              <div ${fetcherAttrs} class="yt-single">
-                <div class="yt-single-bg" style="background-image:url('${bgUrl}');" data-role="bg-image"></div>
+                <div class="yt-single-bg" style="background-image:url('${escapeAttr(bgUrl)}');" data-role="bg-image"></div>
                 <div class="yt-single-overlay"></div>
                 <div class="yt-single-content">
                     <div class="yt-single-icon">
@@ -778,8 +1257,8 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><polygon points="10 8 16 12 10 16 10 8"/></svg>
                     </a>
                     <div class="yt-single-info">
-                        <h3 data-role="channel-title">${block.channelTitle || block.title}</h3>
-                        <p data-role="video-title">${block.subtext || ''}</p>
+                        <h3 data-role="channel-title">${escapeHtml(block.channelTitle || block.title)}</h3>
+                        <p data-role="video-title">${escapeHtml(block.subtext)}</p>
                     </div>
                 </div>
              </div>`;
@@ -788,85 +1267,148 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
     // STANDARD TYPES
     else {
         switch (block.type) {
-            case BlockType.IMAGE:
-                contentHtml = `<img src="${blockImageSrc}" class="full-img" alt="${block.title || ''}" />`;
+            case BlockType.MEDIA:
+                const mediaPos = block.mediaPosition || { x: 50, y: 50 };
+                const mediaPosStyle = `object-position: ${mediaPos.x}% ${mediaPos.y}%;`;
+                contentHtml = `<img src="${escapeAttr(blockImageSrc)}" class="full-img" style="${mediaPosStyle}" alt="${escapeAttr(block.title || '')}" />`;
+                if (block.title) {
+                  contentHtml += `
+                  <div class="media-overlay">
+                    <div class="media-title">${escapeHtml(block.title)}</div>
+                    ${block.subtext ? `<div class="media-subtext">${escapeHtml(block.subtext)}</div>` : ''}
+                  </div>`;
+                }
                 break;
             case BlockType.MAP:
-                contentHtml = `<iframe width="100%" height="100%" frameborder="0" style="position:absolute; inset:0; filter:grayscale(0.5) contrast(1.1); pointer-events:none;" src="https://maps.google.com/maps?q=${encodeURIComponent(block.content || 'Paris')}&t=&z=13&ie=UTF8&iwloc=&output=embed"></iframe>`;
+                // SECURITY: Validate location string and add sandbox
+                const location = block.content || 'Paris';
+                const dangerousPatterns = [/^javascript:/i, /^data:/i, /^vbscript:/i, /^file:/i, /^about:/i, /^blob:/i];
+                const isSafeLocation = !dangerousPatterns.some(p => p.test(location.trim()));
+                contentHtml = isSafeLocation
+                  ? `<iframe width="100%" height="100%" frameborder="0" sandbox="allow-scripts allow-same-origin" style="position:absolute; inset:0; filter:grayscale(0.5) contrast(1.1); pointer-events:none;" src="https://maps.google.com/maps?q=${encodeURIComponent(location)}&t=&z=13&ie=UTF8&iwloc=&output=embed"></iframe>`
+                  : `<div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#9ca3af;">Invalid location</div>`;
                 break;
             case BlockType.TEXT:
                 contentHtml = `
                 <div class="content-wrapper type-text">
-                    <h3>${block.title || ''}</h3>
-                    <p style="opacity:0.8; line-height:1.6; font-size:1.1rem;">${block.content || ''}</p>
+                    <h3 class="block-title">${escapeHtml(block.title)}</h3>
+                    <p class="block-body">${escapeHtml(block.content)}</p>
                 </div>`;
                 break;
             case BlockType.SOCIAL:
             case BlockType.LINK:
                 const isLinkWithImage = block.type === BlockType.LINK && blockImageSrc;
                 if (isLinkWithImage) {
+                     const linkMediaPos = block.mediaPosition || { x: 50, y: 50 };
                      contentHtml = `
-                     <div style="position:absolute; inset:0; background-image:url('${blockImageSrc}'); background-size:cover; background-position:center;" class="full-img"></div>
-                     <div style="position:absolute; inset:0; background:linear-gradient(to top, rgba(0,0,0,0.6), transparent);"></div>
-                     <div class="content-wrapper" style="color:white; z-index:2;">
-                         <div class="icon-box" style="background:rgba(255,255,255,0.25); color:white; backdrop-filter:blur(5px); border:1px solid rgba(255,255,255,0.3);">
-                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
-                         </div>
-                         <div>
-                             <div class="block-title" style="text-shadow:0 2px 4px rgba(0,0,0,0.2);">${block.title || 'Link'}</div>
-                             <div class="block-sub" style="opacity:0.9;">${block.subtext || ''}</div>
-                         </div>
+                     <div style="position:absolute; inset:0; background-image:url('${escapeAttr(blockImageSrc)}'); background-size:cover; background-position:${linkMediaPos.x}% ${linkMediaPos.y}%;" class="full-img"></div>
+                     <div class="media-overlay">
+                       <div class="media-title">${escapeHtml(block.title) || 'Link'}</div>
+                       ${block.subtext ? `<div class="media-subtext">${escapeHtml(block.subtext)}</div>` : ''}
                      </div>`;
                 } else {
+                     if (block.type === BlockType.SOCIAL) {
+                       const option = getSocialPlatformOption(block.socialPlatform);
+                       const label = option?.label || 'Social';
+                       const iconColor = resolveIconColor(block.textColor, option?.brandColor);
+                       const iconSrc = getSimpleIconSrc(block.socialPlatform, iconColor);
+                       const fallbackLetter = label.slice(0, 1).toUpperCase();
+                       const iconHtml = iconSrc
+                         ? `<img src="${escapeAttr(iconSrc)}" alt="${escapeAttr(label)}" onerror="this.style.display='none';" />`
+                         : `<span class="icon-fallback">${escapeHtml(fallbackLetter)}</span>`;
+                       contentHtml = `
+                        <div class="content-wrapper">
+                          <div class="icon-box">${iconHtml}</div>
+                          <div>
+                            <div class="block-title">${escapeHtml(block.title) || 'Link'}</div>
+                            <div class="block-sub">${escapeHtml(block.subtext)}</div>
+                          </div>
+                        </div>`;
+                       break;
+                     }
                      contentHtml = `
-                     <div class="content-wrapper">
-                         <div class="icon-box" style="background:${block.textColor === 'text-white' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.9)'}; color: ${block.textColor === 'text-white' ? 'white' : 'black'}; backdrop-filter:blur(4px);">
-                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
-                         </div>
+                     <div class="content-wrapper link-only">
                          <div>
-                             <div class="block-title">${block.title || 'Link'}</div>
-                             <div class="block-sub">${block.subtext || ''}</div>
+                             <div class="block-title">${escapeHtml(block.title) || 'Link'}</div>
+                             <div class="block-sub">${escapeHtml(block.subtext)}</div>
                          </div>
                      </div>`;
                 }
                 break;
+            case BlockType.SOCIAL_ICON: {
+                const option = getSocialPlatformOption(block.socialPlatform);
+                const label = option?.label || 'Social';
+                const iconColor = resolveIconColor(block.textColor, option?.brandColor);
+                const iconSrc = getSimpleIconSrc(block.socialPlatform, iconColor);
+                const fallbackLetter = label.slice(0, 1).toUpperCase();
+                const iconHtml = iconSrc
+                  ? `<div class="social-icon"><span class="social-fallback">${escapeHtml(fallbackLetter)}</span><img src="${escapeAttr(iconSrc)}" alt="${escapeAttr(label)}" onerror="this.style.display='none';" /></div>`
+                  : `<div class="social-icon"><span class="social-fallback">${escapeHtml(fallbackLetter)}</span></div>`;
+                contentHtml = iconHtml;
+                explicitHref = buildSocialUrl(block.socialPlatform, block.socialHandle) || null;
+                extraClass = 'social-icon-block';
+                break;
+            }
             case BlockType.SPACER:
                 contentHtml = ''; 
                 break;
         }
     }
 
-    const tag = (block.content && !block.channelId && block.type !== BlockType.TEXT) ? 'a' : 'div';
-    const href = tag === 'a' ? `href="${block.content}" target="_blank"` : '';
+    const inferredHref =
+      explicitHref ||
+      (block.content && !block.channelId && block.type !== BlockType.TEXT ? block.content : '');
+    const tag = inferredHref ? 'a' : 'div';
+    const href = inferredHref ? `href="${escapeAttr(inferredHref)}" target="_blank" rel="noopener noreferrer"` : '';
+    const analyticsAttrs = [
+      `data-block-id="${escapeAttr(block.id)}"`,
+      `data-block-type="${escapeAttr(block.type)}"`,
+      block.type === BlockType.SOCIAL && block.socialPlatform ? `data-social-platform="${escapeAttr(block.socialPlatform)}"` : '',
+      block.type === BlockType.SOCIAL && block.socialHandle ? `data-social-handle="${escapeAttr(block.socialHandle)}"` : '',
+    ].filter(Boolean).join(' ');
     
     // Add explicit grid positioning for correct order
-    const gridPosition = block.gridColumn !== undefined && block.gridRow !== undefined 
-      ? `grid-column: ${block.gridColumn} / span ${Math.min(block.colSpan, 3)}; grid-row: ${block.gridRow} / span ${block.rowSpan};`
-      : '';
+    let gridPosition = '';
+    if (block.gridColumn !== undefined && block.gridRow !== undefined) {
+      gridPosition = `grid-column: ${block.gridColumn} / span ${colSpan}; grid-row: ${block.gridRow} / span ${block.rowSpan};`;
+    } else if (block.gridColumn !== undefined) {
+      gridPosition = `grid-column: ${block.gridColumn} / span ${colSpan}; grid-row: span ${block.rowSpan};`;
+    } else if (block.gridRow !== undefined) {
+      gridPosition = `grid-column: span ${colSpan}; grid-row: ${block.gridRow} / span ${block.rowSpan};`;
+    } else {
+      gridPosition = `grid-column: span ${colSpan}; grid-row: span ${block.rowSpan};`;
+    }
     const style = `background: ${bgStyle}; color: ${textStyle}; ${gridPosition}`;
     const noHover = !isInteractive ? 'no-hover' : '';
 
-    return `<${tag} ${href} class="bento-item ${colClass} ${rowClass} ${noHover}" style="${style}">${contentHtml}</${tag}>`;
+    return `<${tag} ${href} ${analyticsAttrs} class="bento-item ${colClass} ${rowClass} ${noHover} ${extraClass} ${sizeClass}" style="${style}">${contentHtml}</${tag}>`;
   };
+
+  // Background blur overlay div
+  const blurOverlayHtml = profile.backgroundImage && profile.backgroundBlur && profile.backgroundBlur > 0
+    ? '<div class="bg-blur-overlay"></div>'
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${profile.name}</title>
-    <meta name="description" content="${profile.bio.replace(/\n/g, ' ')}">
+    <title>${escapeHtml(profile.name)}</title>
+    <meta name="description" content="${escapeAttr(profile.bio.replace(/\n/g, ' '))}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <script src="app.js" defer></script>
 </head>
 <body>
+    ${blurOverlayHtml}
     <div class="container">
         <!-- Profile -->
         <div class="profile-section">
-            <div class="avatar"><img src="${avatarSrc}" alt="${profile.name}"></div>
-            <h1 class="profile-name">${profile.name}</h1>
-            <p class="profile-bio">${profile.bio}</p>
+            <div class="avatar" style="${avatarInlineStyle}"><img src="${escapeAttr(avatarSrc)}" alt="${escapeAttr(profile.name)}"></div>
+            <h1 class="profile-name">${escapeHtml(profile.name)}</h1>
+            <p class="profile-bio">${escapeHtml(profile.bio)}</p>
+            ${socialHeaderHtml}
         </div>
 
         <!-- Grid -->
@@ -876,14 +1418,228 @@ const generateHtml = (data: SiteData, imageMap: Record<string, string>): string 
             </main>
         </div>
     </div>
+    ${showBranding ? `
     <footer>
         <p>Made with <span class="heart">♥</span> using <a href="https://github.com/yoanbernabeu/openbento" target="_blank" rel="noopener noreferrer">OpenBento</a></p>
-    </footer>
+    </footer>` : ''}
 </body>
 </html>`;
 };
 
-export const exportSite = async (data: SiteData) => {
+export const generatePreviewSrcDoc = (data: SiteData, opts?: { siteId?: string }) => {
+  const bgConfig: BackgroundConfig = {
+    backgroundColor: data.profile.backgroundColor,
+    backgroundImage: data.profile.backgroundImage,
+    backgroundBlur: data.profile.backgroundBlur,
+  };
+  const css = generateCSS(data.profile.name, bgConfig);
+
+  const analyticsSupabaseUrl = data.profile.analytics?.supabaseUrl?.trim().replace(/\/+$/, '') || '';
+  const analyticsAnonKey = data.profile.analytics?.anonKey?.trim() || '';
+  const analyticsEnabled = !!(data.profile.analytics?.enabled && analyticsSupabaseUrl && analyticsAnonKey && opts?.siteId);
+  const analytics = analyticsEnabled
+    ? {
+        enabled: true,
+        supabaseUrl: analyticsSupabaseUrl,
+        anonKey: analyticsAnonKey,
+        siteId: opts!.siteId!,
+      }
+    : undefined;
+
+  const js = generateJS({ analytics });
+
+  return generateHtml(data, {})
+    .replace('<link rel="stylesheet" href="styles.css">', `<style>${css}</style>`)
+    .replace('<script src="app.js" defer></script>', `<script>${js}</script>`);
+};
+
+export type ExportDeploymentTarget =
+  | 'vercel'
+  | 'netlify'
+  | 'github-pages'
+  | 'docker'
+  | 'vps'
+  | 'heroku';
+
+const VERCEL_JSON = `{
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}
+`;
+
+const NETLIFY_TOML = `[build]
+  publish = "."
+  command = "echo \\"no build\\""
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+`;
+
+const NGINX_CONF = `server {
+  listen 80;
+  server_name _;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+`;
+
+const DOCKERFILE_NGINX = `FROM nginx:alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY . /usr/share/nginx/html
+`;
+
+const DOCKERIGNORE = `.git
+node_modules
+dist
+`;
+
+const HEROKU_PACKAGE_JSON = (name: string) => `{
+  "name": "${name.replaceAll('"', '')}",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": { "node": "20.x" },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+`;
+
+const HEROKU_SERVER_JS = `import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+const safeJoin = (base: string, target: string) => {
+  const targetPath = path.normalize(path.join(base, target));
+  if (!targetPath.startsWith(base)) return base;
+  return targetPath;
+};
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const reqUrl = new URL(req.url || '/', 'http://localhost');
+    const pathname = decodeURIComponent(reqUrl.pathname);
+
+    let filePath = pathname === '/' ? '/index.html' : pathname;
+    filePath = safeJoin(__dirname, filePath);
+
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.isDirectory()) filePath = path.join(filePath, 'index.html');
+      const ext = path.extname(filePath);
+      const data = await fs.readFile(filePath);
+      res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+      res.end(data);
+      return;
+    } catch {
+      // Fallback to index.html (static single-page)
+      const data = await fs.readFile(path.join(__dirname, 'index.html'));
+      res.writeHead(200, { 'Content-Type': MIME['.html'] });
+      res.end(data);
+      return;
+    }
+  } catch {
+    res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Server error');
+  }
+});
+
+server.listen(process.env.PORT || 3000);
+`;
+
+const HEROKU_PROCFILE = `web: npm start
+`;
+
+const generateDeployDocs = (params: {
+  title: string;
+  deploymentTarget: ExportDeploymentTarget;
+  analyticsEnabled: boolean;
+  siteId?: string;
+  analyticsEndpoint?: string;
+}) => {
+  const { title, deploymentTarget, analyticsEnabled, siteId, analyticsEndpoint } = params;
+  return `# Deploy your Bento page
+
+This export contains a static website:
+
+- \`index.html\`
+- \`styles.css\`
+- \`app.js\`
+- \`assets/\` (optional)
+
+Selected deployment target: **${deploymentTarget}**
+
+## Analytics
+
+- Enabled: **${analyticsEnabled ? 'yes' : 'no'}**
+${analyticsEnabled ? `- Site ID: \`${siteId}\`\n- Track endpoint: \`${analyticsEndpoint}\`` : ''}
+
+## Deploy options
+
+### Vercel
+
+- Import the unzipped folder as a Vercel project (Framework: Other / No build)
+- This package includes \`vercel.json\`
+
+### Netlify
+
+- Drag & drop the unzipped folder into Netlify “Deploy manually”
+- This package includes \`netlify.toml\`
+
+### GitHub Pages (GitHub Actions)
+
+- Create a repository, push the unzipped files to \`main\`
+- In GitHub: Settings → Pages → Source: GitHub Actions
+- This package includes \`.github/workflows/deploy.yml\`
+
+### Docker (nginx)
+
+- Build: \`docker build -t my-bento .\`
+- Run: \`docker run --rm -p 8080:80 my-bento\`
+- This package includes \`Dockerfile\` + \`nginx.conf\`
+
+### VPS (nginx)
+
+- Copy files to your server (example: \`/var/www/bento\`)
+- Use the provided \`nginx.conf\` as a starting point (adjust the \`root\` path)
+
+### Heroku
+
+- This package includes \`server.js\` + \`Procfile\` + \`package.json\`
+- Deploy as a simple Node web app serving static files.
+`;
+};
+
+export const exportSite = async (
+  data: SiteData,
+  opts?: { siteId?: string; deploymentTarget?: ExportDeploymentTarget },
+) => {
   const zip = new JSZip();
   const folderAssets = zip.folder("assets");
   const imageMap: Record<string, string> = {};
@@ -906,13 +1662,67 @@ export const exportSite = async (data: SiteData) => {
       }
   }
 
-  zip.file("styles.css", generateCSS(data.profile.name));
-  zip.file("app.js", generateJS());
+  const bgConfig: BackgroundConfig = {
+    backgroundColor: data.profile.backgroundColor,
+    backgroundImage: data.profile.backgroundImage,
+    backgroundBlur: data.profile.backgroundBlur,
+  };
+  zip.file("styles.css", generateCSS(data.profile.name, bgConfig));
+
+  const analyticsSupabaseUrl = data.profile.analytics?.supabaseUrl?.trim().replace(/\/+$/, '') || '';
+  const analyticsAnonKey = data.profile.analytics?.anonKey?.trim() || '';
+  const analyticsEnabled = !!(data.profile.analytics?.enabled && analyticsSupabaseUrl && analyticsAnonKey && opts?.siteId);
+  const analytics = analyticsEnabled
+    ? {
+        enabled: true,
+        supabaseUrl: analyticsSupabaseUrl,
+        anonKey: analyticsAnonKey,
+        siteId: opts!.siteId!,
+      }
+    : undefined;
+
+  zip.file("app.js", generateJS({ analytics }));
   zip.file("index.html", generateHtml(data, imageMap));
   zip.file("data.json", JSON.stringify(data, null, 2));
 
-  zip.file(".github/workflows/deploy.yml", GITHUB_WORKFLOW_YAML);
+  const deploymentTarget: ExportDeploymentTarget = opts?.deploymentTarget ?? 'vercel';
+
+  zip.file(
+    "DEPLOY.md",
+    generateDeployDocs({
+      title: data.profile.name,
+      deploymentTarget,
+      analyticsEnabled,
+      siteId: opts?.siteId,
+      analyticsEndpoint: analyticsSupabaseUrl ? `${analyticsSupabaseUrl}/rest/v1/openbento_analytics_events` : undefined,
+    }),
+  );
+
+  switch (deploymentTarget) {
+    case 'github-pages':
+      zip.file(".github/workflows/deploy.yml", GITHUB_WORKFLOW_YAML);
+      break;
+    case 'vercel':
+      zip.file("vercel.json", VERCEL_JSON);
+      break;
+    case 'netlify':
+      zip.file("netlify.toml", NETLIFY_TOML);
+      break;
+    case 'docker':
+      zip.file("Dockerfile", DOCKERFILE_NGINX);
+      zip.file("nginx.conf", NGINX_CONF);
+      zip.file(".dockerignore", DOCKERIGNORE);
+      break;
+    case 'vps':
+      zip.file("nginx.conf", NGINX_CONF.replaceAll('/usr/share/nginx/html', '/var/www/bento'));
+      break;
+    case 'heroku':
+      zip.file("Procfile", HEROKU_PROCFILE);
+      zip.file("package.json", HEROKU_PACKAGE_JSON(`${data.profile.name.replace(/\s+/g, '-').toLowerCase()}-bento`));
+      zip.file("server.js", HEROKU_SERVER_JS);
+      break;
+  }
 
   const content = await zip.generateAsync({ type: "blob" });
-  saveAs(content, `${data.profile.name.replace(/\s+/g, '-').toLowerCase()}-bento.zip`);
+  saveAs(content, `${data.profile.name.replace(/\s+/g, '-').toLowerCase()}-bento-${deploymentTarget}.zip`);
 };

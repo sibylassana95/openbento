@@ -1,11 +1,19 @@
-import React, { useRef, useState } from 'react';
-import { BlockData, BlockType, UserProfile } from '../types';
+import React, { useState } from 'react';
+import { BlockData, BlockType, SocialPlatform, UserProfile } from '../types';
 import { BASE_COLORS } from '../constants';
-import { X, Link, MapPin, Image as ImageIcon, Type, Github, Upload, Trash2, LayoutGrid, Type as TypeIcon, MoveVertical, ArrowLeftRight, Youtube, ExternalLink, RefreshCw, Loader2, Grid3X3, Square, List, Palette, CheckCircle2 } from 'lucide-react';
+import { X, Link, MapPin, Image as ImageIcon, Type, Github, Upload, Trash2, Type as TypeIcon, MoveVertical, Youtube, ExternalLink, RefreshCw, Loader2, Grid3X3, Square, List, Palette, CheckCircle2 } from 'lucide-react';
+import {
+  buildSocialUrl,
+  extractHandleFromUrl,
+  getSocialDisplayHandle,
+  getSocialPlatformOption,
+  inferSocialPlatformFromUrl,
+  normalizeSocialHandle,
+  SOCIAL_PLATFORM_OPTIONS,
+} from '../socialPlatforms';
 
 interface EditorSidebarProps {
   profile: UserProfile;
-  setProfile: (p: UserProfile) => void;
   addBlock: (type: BlockType) => void;
   editingBlock: BlockData | null;
   updateBlock: (b: BlockData) => void;
@@ -16,28 +24,15 @@ interface EditorSidebarProps {
 
 const EditorSidebar: React.FC<EditorSidebarProps> = ({
   profile,
-  setProfile,
   addBlock,
   editingBlock,
   updateBlock,
   onDelete,
   closeEdit,
-  isOpen
+  isOpen,
 }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfile({ ...profile, avatarUrl: reader.result as string });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   const handleBlockImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -50,7 +45,20 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
     }
   };
 
-  const isYouTubeActive = editingBlock?.channelId && editingBlock.channelId.length > 0;
+  const isYouTubeActive = editingBlock?.type === BlockType.SOCIAL && !!(editingBlock.channelId && editingBlock.channelId.length > 0);
+
+  const resolvedSocialPlatform: SocialPlatform | undefined =
+    editingBlock?.type === BlockType.SOCIAL
+      ? editingBlock.socialPlatform ?? inferSocialPlatformFromUrl(editingBlock.content) ?? 'x'
+      : undefined;
+
+  const resolvedSocialHandle: string =
+    editingBlock?.type === BlockType.SOCIAL
+      ? editingBlock.socialHandle ?? extractHandleFromUrl(resolvedSocialPlatform, editingBlock.content) ?? ''
+      : '';
+
+  const resolvedSocialOption = getSocialPlatformOption(resolvedSocialPlatform);
+  const resolvedSocialUrl = buildSocialUrl(resolvedSocialPlatform, resolvedSocialHandle);
 
   const fetchLatestFromRSS = async () => {
       const cId = editingBlock?.channelId;
@@ -107,30 +115,139 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
       }
   };
 
+  const autoFillSocialText = (
+    prevPlatform: SocialPlatform | undefined,
+    prevHandle: string,
+    nextPlatform: SocialPlatform,
+    nextHandle: string,
+  ): Partial<Pick<BlockData, 'title' | 'subtext'>> => {
+    if (!editingBlock) return {};
+    const prevLabel = getSocialPlatformOption(prevPlatform)?.label;
+    const nextLabel = getSocialPlatformOption(nextPlatform)?.label;
+
+    const prevAutoSub = getSocialDisplayHandle(prevPlatform, prevHandle);
+    const nextAutoSub = getSocialDisplayHandle(nextPlatform, nextHandle);
+
+    const title =
+      !editingBlock.title || editingBlock.title === 'Social' || (prevLabel && editingBlock.title === prevLabel)
+        ? nextLabel ?? editingBlock.title
+        : editingBlock.title;
+
+    const subtext =
+      !editingBlock.subtext || (prevAutoSub && editingBlock.subtext === prevAutoSub)
+        ? nextAutoSub || editingBlock.subtext
+        : editingBlock.subtext;
+
+    return { title, subtext };
+  };
+
+  const handleSelectSocialPlatform = (platform: SocialPlatform) => {
+    if (!editingBlock || editingBlock.type !== BlockType.SOCIAL) return;
+
+    const prevPlatform = resolvedSocialPlatform;
+    const prevHandle = resolvedSocialHandle;
+    const prevKind = getSocialPlatformOption(prevPlatform)?.kind;
+    const nextKind = getSocialPlatformOption(platform)?.kind;
+
+    const nextHandleRaw = prevKind !== nextKind ? '' : prevHandle;
+    const nextHandle = normalizeSocialHandle(platform, nextHandleRaw);
+    const nextUrl = buildSocialUrl(platform, nextHandle);
+
+    const { title, subtext } = autoFillSocialText(prevPlatform, prevHandle, platform, nextHandle);
+
+    updateBlock({
+      ...editingBlock,
+      socialPlatform: platform,
+      socialHandle: nextHandle,
+      content: nextUrl,
+      title,
+      subtext,
+
+      // Switch to platform mode => disable YouTube preview mode
+      channelId: undefined,
+      youtubeVideoId: undefined,
+      youtubeVideos: undefined,
+      youtubeMode: undefined,
+      channelTitle: undefined,
+    });
+  };
+
+  const handleChangeSocialInput = (rawInput: string) => {
+    if (!editingBlock || editingBlock.type !== BlockType.SOCIAL) return;
+
+    // Allow pasting full URLs
+    if (/^https?:\/\//i.test(rawInput.trim())) {
+      const inferred = inferSocialPlatformFromUrl(rawInput) ?? 'custom';
+      const extracted = extractHandleFromUrl(inferred, rawInput);
+      const nextHandle = normalizeSocialHandle(inferred, extracted ?? rawInput);
+
+      const nextUrl = extracted ? buildSocialUrl(inferred, nextHandle) : buildSocialUrl('custom', rawInput);
+      const { title, subtext } = autoFillSocialText(resolvedSocialPlatform, resolvedSocialHandle, inferred, nextHandle);
+
+      updateBlock({
+        ...editingBlock,
+        socialPlatform: inferred,
+        socialHandle: nextHandle,
+        content: nextUrl,
+        title,
+        subtext,
+
+        // Keep this in platform mode if user is pasting URLs
+        channelId: undefined,
+        youtubeVideoId: undefined,
+        youtubeVideos: undefined,
+        youtubeMode: undefined,
+        channelTitle: undefined,
+      });
+      return;
+    }
+
+    const platform = resolvedSocialPlatform ?? 'x';
+    const nextHandle = normalizeSocialHandle(platform, rawInput);
+    const nextUrl = buildSocialUrl(platform, nextHandle);
+    const { title, subtext } = autoFillSocialText(platform, resolvedSocialHandle, platform, nextHandle);
+
+    updateBlock({
+      ...editingBlock,
+      socialPlatform: platform,
+      socialHandle: nextHandle,
+      content: nextUrl,
+      title,
+      subtext,
+
+      // Platform mode
+      channelId: undefined,
+      youtubeVideoId: undefined,
+      youtubeVideos: undefined,
+      youtubeMode: undefined,
+      channelTitle: undefined,
+    });
+  };
+
   const isSelectedColor = (c: any) => {
       if(!editingBlock) return false;
       if (editingBlock.customBackground) return editingBlock.customBackground === c.hex;
       return editingBlock.color === c.bg;
   };
 
-  return (
-    <div 
-        className={`fixed right-0 top-0 h-screen w-full md:w-[400px] bg-white/95 backdrop-blur-xl z-50 shadow-2xl shadow-black/10 transform transition-transform duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] flex flex-col border-l border-gray-200/50
-        ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
-    >
+	  return (
+	    <div 
+	        className={`fixed right-0 top-0 h-screen w-full md:w-[400px] bg-white z-50 shadow-xl transform transition-transform duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] flex flex-col border-l border-gray-200
+	        ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+	    >
       
       {/* Header */}
-      <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-white to-gray-50/80 sticky top-0 z-20">
-        <div>
-          <h2 className="font-bold text-lg text-gray-900 tracking-tight">
-            {editingBlock ? 'Edit Block' : 'Builder'}
-          </h2>
-          <p className="text-xs text-gray-400 mt-0.5">{editingBlock ? 'Customize your block' : 'Create your identity'}</p>
-        </div>
-        <button onClick={closeEdit} className="p-2.5 hover:bg-gray-100 rounded-xl transition-colors text-gray-400 hover:text-gray-600"><X size={18} /></button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-8 space-y-10 no-scrollbar pb-20">
+		      <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-20">
+		        <div>
+		          <h2 className="font-bold text-base text-gray-900 tracking-tight">
+		            {editingBlock ? 'Edit Block' : 'Edit'}
+		          </h2>
+		          <p className="text-xs text-gray-400 mt-0.5">{editingBlock ? 'Customize your block' : 'Build your layout'}</p>
+		        </div>
+		        <button onClick={closeEdit} className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-400 hover:text-gray-600"><X size={18} /></button>
+		      </div>
+	
+	      <div className="flex-1 overflow-y-auto p-5 space-y-7 no-scrollbar pb-20">
         
         {/* EDITING A SPECIFIC BLOCK */}
         {editingBlock ? (
@@ -139,8 +256,8 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
             {/* Input Group */}
             <div className="space-y-5">
                 
-                {/* 1. Title (Not for spacers) */}
-                {editingBlock.type !== BlockType.SPACER && (
+                {/* 1. Title (Not for spacers or social icons) */}
+                {editingBlock.type !== BlockType.SPACER && editingBlock.type !== BlockType.SOCIAL_ICON && (
                   <div>
                       <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Title</label>
                       <input 
@@ -153,23 +270,226 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                   </div>
                 )}
 
-                {/* 2. SOCIAL BLOCK: Platform Selector */}
-                {editingBlock.type === BlockType.SOCIAL && (
-                    <div className="p-1 bg-gray-100 rounded-xl flex mb-4">
-                        <button 
-                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${!isYouTubeActive ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}
-                            onClick={() => updateBlock({...editingBlock, channelId: undefined, youtubeVideoId: undefined})}
-                        >
-                            Generic Link
-                        </button>
-                        <button 
-                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${isYouTubeActive ? 'bg-red-500 shadow text-white' : 'text-gray-500 hover:text-red-600'}`}
-                            onClick={() => updateBlock({...editingBlock, channelId: 'UCRlsJWh1XwmNGxZPFgJ0Zlw', youtubeMode: 'single'})} 
-                        >
-                            <Youtube size={14} /> YouTube
-                        </button>
+                {/* 2a. SOCIAL_ICON BLOCK: Simple platform + handle */}
+                {editingBlock.type === BlockType.SOCIAL_ICON && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Platform</label>
+                      <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto">
+                        {SOCIAL_PLATFORM_OPTIONS.map((platform) => {
+                          const active = platform.id === editingBlock.socialPlatform;
+                          const BrandIcon = platform.brandIcon;
+                          const FallbackIcon = platform.icon;
+                          return (
+                            <button
+                              key={platform.id}
+                              type="button"
+                              onClick={() => updateBlock({ ...editingBlock, socialPlatform: platform.id })}
+                              className={`p-1.5 rounded-lg border transition-all flex flex-col items-center gap-0.5 ${active ? 'bg-violet-600 text-white border-violet-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                              title={platform.label}
+                            >
+                              {BrandIcon ? (
+                                <BrandIcon size={14} style={{ color: active ? '#ffffff' : platform.brandColor }} />
+                              ) : (
+                                <FallbackIcon size={14} className={active ? 'text-white' : 'text-gray-500'} />
+                              )}
+                              <span className="text-[8px] font-medium leading-tight truncate w-full text-center">{platform.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                        {getSocialPlatformOption(editingBlock.socialPlatform)?.kind === 'url' ? 'URL' : 'Handle'}
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 focus:outline-none transition-all font-medium text-gray-600"
+                        value={editingBlock.socialHandle || ''}
+                        onChange={(e) => updateBlock({ ...editingBlock, socialHandle: e.target.value })}
+                        placeholder={getSocialPlatformOption(editingBlock.socialPlatform)?.placeholder ?? 'yourhandle'}
+                      />
+                    </div>
+
+                    {/* Icon Color Style */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Icon Style</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateBlock({ ...editingBlock, textColor: 'text-brand' })}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-xs font-semibold transition-all flex items-center justify-center gap-2 ${
+                            !editingBlock.textColor || editingBlock.textColor === 'text-brand'
+                              ? 'bg-violet-600 text-white border-violet-600'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="w-3 h-3 rounded-full" style={{ background: getSocialPlatformOption(editingBlock.socialPlatform)?.brandColor || '#6366f1' }} />
+                          Color
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateBlock({ ...editingBlock, textColor: 'text-gray-700' })}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-xs font-semibold transition-all flex items-center justify-center gap-2 ${
+                            editingBlock.textColor === 'text-gray-700'
+                              ? 'bg-gray-800 text-white border-gray-800'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="w-3 h-3 rounded-full bg-gray-500" />
+                          Grey
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateBlock({ ...editingBlock, textColor: 'text-black' })}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-xs font-semibold transition-all flex items-center justify-center gap-2 ${
+                            editingBlock.textColor === 'text-black'
+                              ? 'bg-black text-white border-black'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="w-3 h-3 rounded-full bg-black" />
+                          Black
+                        </button>
+                      </div>
+                    </div>
+
+                    {editingBlock.socialHandle && buildSocialUrl(editingBlock.socialPlatform, editingBlock.socialHandle) && (
+                      <div className="bg-violet-50 border border-violet-200 rounded-lg p-2">
+                        <p className="text-[9px] font-bold text-violet-400 uppercase tracking-wider mb-0.5">Preview</p>
+                        <a
+                          href={buildSocialUrl(editingBlock.socialPlatform, editingBlock.socialHandle)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] font-medium text-violet-700 hover:text-violet-900 break-all underline"
+                        >
+                          {buildSocialUrl(editingBlock.socialPlatform, editingBlock.socialHandle)}
+                        </a>
+                      </div>
+                    )}
+                  </div>
                 )}
+
+	                {/* 2b. SOCIAL BLOCK: Mode + Platform */}
+	                {editingBlock.type === BlockType.SOCIAL && (
+	                  <div className="space-y-4">
+	                    <div className="p-1 bg-gray-100 rounded-xl flex">
+	                      <button
+	                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${!isYouTubeActive ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}
+	                        onClick={() =>
+	                          updateBlock({
+	                            ...editingBlock,
+	                            channelId: undefined,
+	                            youtubeVideoId: undefined,
+	                            youtubeVideos: undefined,
+	                            youtubeMode: undefined,
+	                            channelTitle: undefined,
+	                          })
+	                        }
+	                      >
+	                        Platforms
+	                      </button>
+	                      <button
+	                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${isYouTubeActive ? 'bg-red-500 shadow text-white' : 'text-gray-500 hover:text-red-600'}`}
+	                        onClick={() =>
+	                          updateBlock({
+	                            ...editingBlock,
+	                            socialPlatform: 'youtube',
+	                            channelId: editingBlock.channelId || 'UCRlsJWh1XwmNGxZPFgJ0Zlw',
+	                            youtubeMode: editingBlock.youtubeMode || 'single',
+	                          })
+	                        }
+	                      >
+	                        <Youtube size={14} /> YouTube
+	                      </button>
+	                    </div>
+
+	                    {!isYouTubeActive && (
+	                      <div className="space-y-4">
+	                        <div>
+	                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Platform</label>
+	                          <div className="grid grid-cols-3 gap-2">
+	                            {SOCIAL_PLATFORM_OPTIONS.map((platform) => {
+	                              const active = platform.id === resolvedSocialPlatform;
+	                              return (
+	                                <button
+	                                  key={platform.id}
+	                                  type="button"
+	                                  onClick={() => handleSelectSocialPlatform(platform.id)}
+	                                  className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2 ${active ? 'bg-gray-900 text-white border-gray-900 shadow-md' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+	                                  title={platform.label}
+	                                >
+	                                  <platform.icon size={16} className={active ? 'text-white' : 'text-gray-500'} />
+	                                  <span className="text-[11px] font-semibold leading-tight truncate">{platform.label}</span>
+	                                </button>
+	                              );
+	                            })}
+	                          </div>
+	                        </div>
+
+	                        <div>
+	                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+	                            {resolvedSocialOption?.kind === 'url' ? 'URL' : 'Username / Handle'}
+	                          </label>
+	                          <input
+	                            type="text"
+	                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 focus:ring-2 focus:ring-black/5 focus:border-black focus:outline-none transition-all font-medium text-gray-600"
+	                            value={resolvedSocialHandle}
+	                            onChange={(e) => handleChangeSocialInput(e.target.value)}
+	                            placeholder={resolvedSocialOption?.placeholder ?? 'yourhandle'}
+	                          />
+	                        </div>
+
+	                        {resolvedSocialUrl && (
+	                          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+	                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Resolved Link</p>
+	                            <a
+	                              href={resolvedSocialUrl}
+	                              target="_blank"
+	                              rel="noreferrer"
+	                              className="text-xs font-semibold text-gray-700 hover:text-black break-all underline"
+	                            >
+	                              {resolvedSocialUrl}
+	                            </a>
+	                          </div>
+	                        )}
+
+	                        {/* Icon Color Style for SOCIAL blocks */}
+	                        <div>
+	                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Icon Color</label>
+	                          <div className="flex gap-2">
+	                            <button
+	                              type="button"
+	                              onClick={() => updateBlock({ ...editingBlock, textColor: 'text-brand' })}
+	                              className={`flex-1 py-2 px-3 rounded-lg border text-xs font-semibold transition-all flex items-center justify-center gap-2 ${
+	                                editingBlock.textColor === 'text-brand'
+	                                  ? 'bg-violet-600 text-white border-violet-600'
+	                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+	                              }`}
+	                            >
+	                              <span className="w-3 h-3 rounded-full" style={{ background: getSocialPlatformOption(editingBlock.socialPlatform)?.brandColor || '#6366f1' }} />
+	                              Color
+	                            </button>
+	                            <button
+	                              type="button"
+	                              onClick={() => updateBlock({ ...editingBlock, textColor: undefined })}
+	                              className={`flex-1 py-2 px-3 rounded-lg border text-xs font-semibold transition-all flex items-center justify-center gap-2 ${
+	                                !editingBlock.textColor || editingBlock.textColor === 'text-black'
+	                                  ? 'bg-gray-800 text-white border-gray-800'
+	                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+	                              }`}
+	                            >
+	                              <span className="w-3 h-3 rounded-full bg-gray-600" />
+	                              Default
+	                            </button>
+	                          </div>
+	                        </div>
+	                      </div>
+	                    )}
+	                  </div>
+	                )}
 
                 {/* 3. YOUTUBE SPECIFIC INPUTS */}
                 {isYouTubeActive && (
@@ -206,19 +526,19 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                             <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Video Layout</label>
                             <div className="grid grid-cols-3 gap-2">
                                 <button 
-                                    onClick={() => updateBlock({...editingBlock, youtubeMode: 'single', colSpan: 1, rowSpan: 1})}
+                                    onClick={() => updateBlock({...editingBlock, youtubeMode: 'single', colSpan: 3, rowSpan: 3})}
                                     className={`p-2 rounded-xl text-xs font-medium border flex flex-col items-center justify-center gap-2 h-20 transition-all ${editingBlock.youtubeMode === 'single' || !editingBlock.youtubeMode ? 'bg-red-500 text-white border-red-500 shadow-md ring-2 ring-red-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
                                 >
                                     <Square size={20}/> Single
                                 </button>
                                 <button 
-                                    onClick={() => updateBlock({...editingBlock, youtubeMode: 'grid', colSpan: 2, rowSpan: 2})}
+                                    onClick={() => updateBlock({...editingBlock, youtubeMode: 'grid', colSpan: 6, rowSpan: 6})}
                                     className={`p-2 rounded-xl text-xs font-medium border flex flex-col items-center justify-center gap-2 h-20 transition-all ${editingBlock.youtubeMode === 'grid' ? 'bg-red-500 text-white border-red-500 shadow-md ring-2 ring-red-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
                                 >
                                     <Grid3X3 size={20}/> Grid
                                 </button>
                                 <button 
-                                    onClick={() => updateBlock({...editingBlock, youtubeMode: 'list', colSpan: 2, rowSpan: 2})}
+                                    onClick={() => updateBlock({...editingBlock, youtubeMode: 'list', colSpan: 6, rowSpan: 6})}
                                     className={`p-2 rounded-xl text-xs font-medium border flex flex-col items-center justify-center gap-2 h-20 transition-all ${editingBlock.youtubeMode === 'list' ? 'bg-red-500 text-white border-red-500 shadow-md ring-2 ring-red-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
                                 >
                                     <List size={20}/> List
@@ -228,12 +548,12 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                      </div>
                 )}
 
-                {/* 4. CONTENT FIELDS (Standard) */}
-                {(!isYouTubeActive && (editingBlock.type === BlockType.LINK || editingBlock.type === BlockType.SOCIAL || editingBlock.type === BlockType.IMAGE || editingBlock.type === BlockType.MAP)) && (
-                    <div>
-                         {/* Image Upload for Block */}
-                         {(editingBlock.type === BlockType.IMAGE || editingBlock.type === BlockType.LINK) && (
-                             <div className="mb-4">
+	                {/* 4. CONTENT FIELDS (Standard) */}
+	                {(editingBlock.type === BlockType.LINK || editingBlock.type === BlockType.MEDIA || editingBlock.type === BlockType.MAP) && (
+	                    <div>
+	                         {/* Image Upload for Block */}
+	                         {(editingBlock.type === BlockType.MEDIA || editingBlock.type === BlockType.LINK) && (
+	                             <div className="mb-4">
                                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Upload Image {editingBlock.type === BlockType.LINK ? '(Optional Background)' : ''}</label>
                                 <div className="relative group cursor-pointer border-2 border-dashed border-gray-300 rounded-xl p-4 hover:border-black transition-colors" onClick={() => document.getElementById('block-img-upload')?.click()}>
                                     <input id="block-img-upload" type="file" className="hidden" accept="image/*" onChange={handleBlockImageUpload} />
@@ -249,19 +569,22 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                          )}
 
                         <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
-                            {editingBlock.type === BlockType.IMAGE ? 'Or Image URL' : 
+                            {editingBlock.type === BlockType.MEDIA ? 'Media URL / Path' :
                             editingBlock.type === BlockType.MAP ? 'Address / City' : 'Destination URL'}
                         </label>
-                        <input 
-                            type="text" 
-                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 focus:ring-2 focus:ring-black/5 focus:border-black focus:outline-none transition-all font-medium text-gray-600"
-                            value={editingBlock.type === BlockType.IMAGE ? (editingBlock.imageUrl || '') : (editingBlock.content || '')}
+                        <input
+                            type="text"
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 focus:ring-2 focus:ring-black/5 focus:border-black focus:outline-none transition-all font-mono text-xs text-gray-600"
+                            value={editingBlock.type === BlockType.MEDIA ? (editingBlock.imageUrl || '') : (editingBlock.content || '')}
                             onChange={(e) => {
-                                if (editingBlock.type === BlockType.IMAGE) updateBlock({...editingBlock, imageUrl: e.target.value});
+                                if (editingBlock.type === BlockType.MEDIA) updateBlock({...editingBlock, imageUrl: e.target.value});
                                 else updateBlock({...editingBlock, content: e.target.value});
                             }}
-                            placeholder="https://..."
+                            placeholder={editingBlock.type === BlockType.MEDIA ? '/images/photo.jpg, video.mp4 or URL' : 'https://...'}
                         />
+                        {editingBlock.type === BlockType.MEDIA && (
+                            <p className="text-[10px] text-gray-400 mt-1.5">Supports images, GIFs, and videos (.mp4, .webm, .mov)</p>
+                        )}
                     </div>
                 )}
 
@@ -282,37 +605,12 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                 )}
             </div>
 
-            {/* Layout Controls */}
-            <div className="space-y-4">
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Dimensions</label>
-                <div className="grid grid-cols-2 gap-3">
-                    <button 
-                        onClick={() => updateBlock({...editingBlock, colSpan: editingBlock.colSpan >= 2 ? 1 : 2})}
-                        className={`p-3 border rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${editingBlock.colSpan === 2 ? 'bg-black text-white border-black shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                    >
-                        <ArrowLeftRight size={16}/> {editingBlock.colSpan === 2 ? 'Wide' : editingBlock.colSpan === 3 ? 'Full' : 'Regular'}
-                    </button>
-                    <button 
-                         onClick={() => updateBlock({...editingBlock, colSpan: 3})}
-                         className={`p-3 border rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${editingBlock.colSpan === 3 ? 'bg-black text-white border-black shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                    >
-                        <LayoutGrid size={16} /> Full Width
-                    </button>
-                    <button 
-                        onClick={() => updateBlock({...editingBlock, rowSpan: editingBlock.rowSpan === 1 ? 2 : 1})}
-                        className={`p-3 border rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${editingBlock.rowSpan === 2 ? 'bg-black text-white border-black shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                    >
-                        <MoveVertical size={16}/> {editingBlock.rowSpan === 2 ? 'Tall' : 'Short'}
-                    </button>
-                </div>
-            </div>
-
-            {/* Appearance (Colors & Gradients) */}
-            {editingBlock.type !== BlockType.SPACER && (
-                <div className="space-y-4">
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                        <Palette size={14}/> Background Style
-                    </label>
+		            {/* Appearance (Colors) */}
+		            {editingBlock.type !== BlockType.SPACER && (
+		                <div className="space-y-4">
+	                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+	                        <Palette size={14}/> Background
+	                    </label>
                     
                     {/* Solid Colors */}
                     <div className="space-y-2">
@@ -334,30 +632,8 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
                         </div>
                     </div>
 
-                    {/* Gradients */}
-                    <div className="space-y-2 mt-4">
-                        <span className="text-[10px] font-semibold text-gray-400 uppercase">Gradients</span>
-                        <div className="grid grid-cols-2 gap-3">
-                            {BASE_COLORS.filter(c => c.type === 'gradient').map(c => {
-                                const active = isSelectedColor(c);
-                                return (
-                                    <button
-                                        key={c.name}
-                                        onClick={() => updateBlock({...editingBlock, color: c.bg, textColor: c.text, customBackground: c.hex})}
-                                        style={{ background: c.hex }}
-                                        className={`h-12 rounded-xl border border-black/5 shadow-sm transition-all transform active:scale-95 ${active ? 'ring-2 ring-offset-2 ring-gray-900 scale-105' : 'hover:scale-105'} flex items-center justify-center relative overflow-hidden`}
-                                        title={c.name}
-                                    >
-                                        <span className="relative z-10 text-xs font-bold text-white drop-shadow-md">{c.name}</span>
-                                        {active && <div className="absolute top-1 right-1 text-white drop-shadow-md"><CheckCircle2 size={14}/></div>}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                </div>
-            )}
+	                </div>
+	            )}
 
             <div className="pt-6 border-t border-gray-100">
                  <button 
@@ -369,82 +645,61 @@ const EditorSidebar: React.FC<EditorSidebarProps> = ({
             </div>
 
           </div>
-        ) : (
-          /* MAIN PROFILE & ADD BLOCKS (Unchanged) */
-          <div className="space-y-12 animate-fade-in">
-             {/* ... Profile ... */}
-             <section className="space-y-5">
-                <div className="flex items-center gap-2">
-                    <div className="w-1 h-5 bg-gradient-to-b from-violet-500 to-purple-600 rounded-full"></div>
-                    <h3 className="text-base font-bold text-gray-900">Profile Identity</h3>
-                </div>
-                
-                <div className="flex gap-5 items-start">
-                    <div className="relative group">
-                        <div className="w-20 h-20 rounded-2xl overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200 ring-2 ring-white shadow-lg group-hover:ring-violet-200 transition-all cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                            <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
-                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm">
-                                <Upload className="text-white w-5 h-5" />
-                            </div>
-                        </div>
-                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
-                    </div>
-                    <div className="flex-1">
-                        <input 
-                            type="text" value={profile.name} onChange={(e) => setProfile({...profile, name: e.target.value})}
-                            className="w-full bg-transparent border-b-2 border-gray-200 pb-2 text-xl font-bold focus:border-violet-500 focus:outline-none placeholder-gray-300 transition-colors"
-                            placeholder="Your Name"
-                        />
-                        <p className="text-xs text-gray-400 mt-2">Click avatar to change</p>
-                    </div>
-                </div>
+	        ) : (
+	          <div className="space-y-8 animate-fade-in">
+	            <section className="space-y-3">
+	              <div className="flex items-center gap-2">
+	                <div className="w-1 h-5 bg-gray-900 rounded-full"></div>
+	                <h3 className="text-base font-bold text-gray-900">Design</h3>
+	              </div>
+	              <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl">
+	                <p className="text-sm text-gray-600 leading-relaxed">
+	                  Use <span className="font-semibold">Settings</span> to configure profile, branding, analytics and deploy defaults.
+	                  Click a block to edit its content, size and colors.
+	                </p>
+	              </div>
+	            </section>
 
-                <div>
-                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Bio</label>
-                   <textarea 
-                      value={profile.bio} onChange={(e) => setProfile({...profile, bio: e.target.value})}
-                      className="w-full bg-gray-50/80 border border-gray-200 rounded-xl p-3.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 focus:outline-none h-24 resize-none text-sm leading-relaxed transition-all"
-                      placeholder="Tell your story..."
-                   />
-                </div>
-             </section>
+	            <section className="space-y-5">
+	              <div className="flex items-center gap-2">
+	                <div className="w-1 h-5 bg-gray-900 rounded-full"></div>
+	                <h3 className="text-base font-bold text-gray-900">Add Content</h3>
+	              </div>
 
-             <section className="space-y-5">
-                <div className="flex items-center gap-2">
-                    <div className="w-1 h-5 bg-gradient-to-b from-amber-400 to-orange-500 rounded-full"></div>
-                    <h3 className="text-base font-bold text-gray-900">Add Content</h3>
-                </div>
-                
-                <div className="grid grid-cols-3 gap-3">
-                    {[
-                        { type: BlockType.LINK, label: 'Link', icon: Link, gradient: 'from-blue-500 to-cyan-500' },
-                        { type: BlockType.SOCIAL, label: 'Social', icon: Github, gradient: 'from-violet-500 to-purple-600' },
-                        { type: BlockType.IMAGE, label: 'Image', icon: ImageIcon, gradient: 'from-pink-500 to-rose-500' },
-                        { type: BlockType.TEXT, label: 'Note', icon: TypeIcon, gradient: 'from-emerald-500 to-teal-500' },
-                        { type: BlockType.MAP, label: 'Map', icon: MapPin, gradient: 'from-orange-500 to-amber-500' },
-                        { type: BlockType.SPACER, label: 'Spacer', icon: MoveVertical, gradient: 'from-gray-400 to-gray-500' },
-                    ].map((btn) => (
-                        <button 
-                            key={btn.type} onClick={() => addBlock(btn.type)} 
-                            className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-100 rounded-2xl hover:border-gray-200 hover:shadow-lg transition-all group"
-                        >
-                            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${btn.gradient} text-white flex items-center justify-center group-hover:scale-110 group-hover:shadow-md transition-all`}>
-                                <btn.icon size={18}/>
-                            </div>
-                            <span className="text-xs font-semibold text-gray-600">{btn.label}</span>
-                        </button>
-                    ))}
-                </div>
-             </section>
-          </div>
-        )}
-      </div>
+	              <div className="grid grid-cols-3 gap-3">
+	                {[
+	                  { type: BlockType.LINK, label: 'Link', icon: Link, color: 'bg-blue-600' },
+	                  { type: BlockType.SOCIAL, label: 'Social', icon: Github, color: 'bg-violet-600' },
+	                  { type: BlockType.MEDIA, label: 'Media', icon: ImageIcon, color: 'bg-pink-600' },
+	                  { type: BlockType.TEXT, label: 'Note', icon: TypeIcon, color: 'bg-emerald-600' },
+	                  { type: BlockType.MAP, label: 'Map', icon: MapPin, color: 'bg-amber-500' },
+	                  { type: BlockType.SPACER, label: 'Spacer', icon: MoveVertical, color: 'bg-gray-600' },
+	                ].map((btn) => (
+	                  <button
+	                    key={btn.type}
+	                    onClick={() => addBlock(btn.type)}
+	                    className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-100 rounded-2xl hover:border-gray-200 hover:shadow-lg transition-all group"
+	                  >
+	                    <div className={`w-10 h-10 rounded-xl ${btn.color} text-white flex items-center justify-center shadow-sm transition-colors`}>
+	                      <btn.icon size={18}/>
+	                    </div>
+	                    <span className="text-xs font-semibold text-gray-600">{btn.label}</span>
+	                  </button>
+	                ))}
+	              </div>
+	            </section>
 
-      <div className="p-4 bg-gradient-to-r from-gray-50 to-white border-t border-gray-100">
-         <p className="text-xs text-center text-gray-400 font-medium">OpenBento &bull; Open Source</p>
-      </div>
-    </div>
-  );
+	          </div>
+	        )}
+	      </div>
+
+	      {profile.showBranding !== false && (
+	        <div className="p-4 bg-gray-50 border-t border-gray-100">
+	           <p className="text-xs text-center text-gray-400 font-medium">OpenBento &bull; Open Source</p>
+	        </div>
+	      )}
+	    </div>
+	  );
 };
 
 export default EditorSidebar;
