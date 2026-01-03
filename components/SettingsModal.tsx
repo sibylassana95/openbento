@@ -102,7 +102,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         })
         .catch(() => {});
     }
-  }, [isOpen, activeTab]);
+  }, [isOpen, activeTab, profile, setProfile]);
 
   const handleSupabaseSetup = async () => {
     setSetupLoading(true);

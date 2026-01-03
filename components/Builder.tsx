@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { SiteData, UserProfile, BlockData, BlockType, SavedBento, AvatarStyle } from '../types';
+import { UserProfile, BlockData, BlockType, SavedBento, AvatarStyle } from '../types';
 import Block from './Block';
 import EditorSidebar from './EditorSidebar';
 import ProfileDropdown from './ProfileDropdown';
@@ -12,7 +12,6 @@ import {
   initializeApp,
   updateBentoData,
   setActiveBentoId,
-  getBento,
   downloadBentoJSON,
   loadBentoFromFile,
   renameBento,
@@ -377,9 +376,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
     set: setSiteData, 
     undo, 
     redo,
-    reset, 
-    canUndo, 
-    canRedo 
+    reset 
   } = useHistory({
     profile: null as any,
     blocks: [] as any[]
@@ -441,7 +438,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
 
   const gridRef = useRef<HTMLElement | null>(null);
   // Store the offset from mouse to block's top-left corner when dragging
-  const dragOffsetRef = useRef<{ col: number; row: number }>({ col: 0, row: 0 });
+  // const dragOffsetRef = useRef<{ col: number; row: number }>({ col: 0, row: 0 });
   const resizeSessionRef = useRef<{
     blockId: string;
     startCol: number;
@@ -492,7 +489,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
       }
     };
     loadBento();
-  }, []);
+  }, [reset]);
 
   // Auto-save function - immediate save with status indicator
   const autoSave = useCallback(
@@ -521,7 +518,6 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
   const handleSetProfile = useCallback(
     (newProfile: UserProfile | ((prev: UserProfile) => UserProfile)) => {
       const updated = typeof newProfile === 'function' ? newProfile(profile!) : newProfile;
-      // Ενημερώνουμε το ενιαίο state (snapshot)
       setSiteData({ profile: updated, blocks });
       autoSave(updated, blocks);
     },
@@ -577,7 +573,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
         });
       }
     },
-    [activeBento, profile, blocks, gridVersion]
+    [activeBento, profile, blocks, gridVersion, reset]
   );
 
   const addBlock = (type: BlockType) => {
@@ -1073,12 +1069,12 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
     }
   };
 
-  const handleDragEnterSlot = (slotIndex: number) => {
-    if (draggedBlockId) {
-      setDragOverSlotIndex(slotIndex);
-      setDragOverBlockId(null);
-    }
-  };
+  // const handleDragEnterSlot = (slotIndex: number) => {
+  //  if (draggedBlockId) {
+  //    setDragOverSlotIndex(slotIndex);
+  //    setDragOverBlockId(null);
+  //  }
+  // };
 
   const handleDragEnd = () => {
     setDraggedBlockId(null);
@@ -1141,7 +1137,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
     handleDragEnd();
   };
 
-  const handleDropAtSlot = (slotIndex: number) => {
+  /* const handleDropAtSlot = (slotIndex: number) => {
     if (!draggedBlockId) {
       handleDragEnd();
       return;
@@ -1161,7 +1157,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
 
     handleSetBlocks(newBlocks);
     handleDragEnd();
-  };
+  }; */
 
   const getGridCellFromPointer = useCallback((clientX: number, clientY: number) => {
     const grid = gridRef.current;
@@ -2059,22 +2055,22 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
         closeEdit={closeSidebar}
       />
 
-      {/* 3. SETTINGS MODAL */}
-      <SettingsModal
-        isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-        profile={siteData.profile}
-        setProfile={(newProfile) => setSiteData({ ...siteData, profile: newProfile })}
-        bentoName={activeBento?.name}
-        onBentoNameChange={(name) => {
-          if (activeBento) {
-            setActiveBento({ ...activeBento, name });
-            renameBento(activeBento.id, name);
-          }
-        }}
-        blocks={siteData.blocks}
-        onBlocksChange={handleSetBlocks}
-      />
+     {/* 3. SETTINGS MODAL */}
+     <SettingsModal
+       isOpen={showSettingsModal}
+       onClose={() => setShowSettingsModal(false)}
+       profile={profile}
+       setProfile={handleSetProfile} 
+       bentoName={activeBento?.name}
+       onBentoNameChange={(name) => {
+         if (activeBento) {
+           setActiveBento({ ...activeBento, name });
+           renameBento(activeBento.id, name);
+         }
+      }}
+      blocks={blocks}
+      setBlocks={handleSetBlocks}
+     />
 
       {/* 4. AVATAR CROP MODAL */}
       <ImageCropModal
