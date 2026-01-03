@@ -699,8 +699,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
         ...bento,
         data: { ...bento.data, blocks: normalizedBlocks, gridVersion: nextGridVersion },
       });
-      setProfile(bento.data.profile);
-      setBlocks(normalizedBlocks);
+      reset({ profile: bento.data.profile, blocks: normalizedBlocks });
       setEditingBlockId(null);
       updateBentoData(bento.id, {
         profile: bento.data.profile,
