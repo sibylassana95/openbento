@@ -5,6 +5,7 @@ import EditorSidebar from './EditorSidebar';
 import ProfileDropdown from './ProfileDropdown';
 import SettingsModal from './SettingsModal';
 import ImageCropModal from './ImageCropModal';
+import { useHistory } from '../hooks/useHistory';
 import AvatarStyleModal from './AvatarStyleModal';
 import AIGeneratorModal from './AIGeneratorModal';
 import { exportSite, type ExportDeploymentTarget } from '../services/export';
@@ -362,8 +363,6 @@ const resolveOverlaps = (blocks: BlockData[]): BlockData[] => {
 const Builder: React.FC<BuilderProps> = ({ onBack }) => {
   // Load initial data from localStorage
   const [activeBento, setActiveBento] = useState<SavedBento | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [blocks, setBlocks] = useState<BlockData[]>([]);
   const [gridVersion, setGridVersion] = useState<number>(GRID_VERSION);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -376,6 +375,19 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
   const [pendingAvatarSrc, setPendingAvatarSrc] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [isLoading, setIsLoading] = useState(true);
+  const {
+    state: siteData,
+    set: setSiteData,
+    undo,
+    redo,
+    reset,
+  } = useHistory({
+    profile: null as any,
+    blocks: [] as any[],
+  });
+
+  const profile = siteData.profile;
+  const blocks = siteData.blocks;
 
   const [deployTarget, setDeployTarget] = useState<ExportDeploymentTarget>(() => {
     try {
@@ -429,7 +441,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
 
   const gridRef = useRef<HTMLElement | null>(null);
   // Store the offset from mouse to block's top-left corner when dragging
-  const dragOffsetRef = useRef<{ col: number; row: number }>({ col: 0, row: 0 });
+  // const dragOffsetRef = useRef<{ col: number; row: number }>({ col: 0, row: 0 });
   const resizeSessionRef = useRef<{
     blockId: string;
     startCol: number;
@@ -463,9 +475,8 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
           ...bento,
           data: { ...bento.data, blocks: normalizedBlocks, gridVersion: nextGridVersion },
         });
-        setProfile(bento.data.profile);
+        reset({ profile: bento.data.profile, blocks: normalizedBlocks });
         setGridVersion(nextGridVersion);
-        setBlocks(normalizedBlocks);
         // Save migrated/normalized blocks if they changed
         if (normalizedBlocks !== bento.data.blocks || nextGridVersion !== bento.data.gridVersion) {
           updateBentoData(bento.id, {
@@ -481,7 +492,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
       }
     };
     loadBento();
-  }, []);
+  }, [reset]);
 
   // Auto-save function - immediate save with status indicator
   const autoSave = useCallback(
@@ -509,28 +520,25 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
   // Handle profile changes with auto-save
   const handleSetProfile = useCallback(
     (newProfile: UserProfile | ((prev: UserProfile) => UserProfile)) => {
-      setProfile((prev) => {
-        const updated = typeof newProfile === 'function' ? newProfile(prev!) : newProfile;
-        autoSave(updated, blocks);
-        return updated;
-      });
+      const updated = typeof newProfile === 'function' ? newProfile(profile!) : newProfile;
+      setSiteData({ profile: updated, blocks });
+      autoSave(updated, blocks);
     },
-    [blocks, autoSave]
+    [profile, blocks, setSiteData, autoSave]
   );
 
   // Handle blocks changes with auto-save - always resolve overlaps
   const handleSetBlocks = useCallback(
     (newBlocks: BlockData[] | ((prev: BlockData[]) => BlockData[])) => {
-      setBlocks((prev) => {
-        const updated = typeof newBlocks === 'function' ? newBlocks(prev) : newBlocks;
-        const normalized = ensureBlocksHavePositions(updated);
-        // Always resolve any overlaps to prevent blocks from stacking
-        const resolved = resolveOverlaps(normalized);
-        if (profile) autoSave(profile, resolved);
-        return resolved;
-      });
+      const updated = typeof newBlocks === 'function' ? newBlocks(blocks) : newBlocks;
+      const normalized = ensureBlocksHavePositions(updated);
+      const resolved = resolveOverlaps(normalized);
+
+      // Ενημερώνουμε το ενιαίο state (snapshot)
+      setSiteData({ profile, blocks: resolved });
+      if (profile) autoSave(profile, resolved);
     },
-    [profile, autoSave]
+    [profile, blocks, setSiteData, autoSave]
   );
 
   // Note: Block positioning is handled when blocks are created (addBlock function)
@@ -557,8 +565,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
         ...bento,
         data: { ...bento.data, blocks: normalizedBlocks, gridVersion: nextGridVersion },
       });
-      setProfile(bento.data.profile);
-      setBlocks(normalizedBlocks);
+      reset({ profile: bento.data.profile, blocks: normalizedBlocks });
       setEditingBlockId(null);
 
       if (normalizedBlocks !== bento.data.blocks || nextGridVersion !== bento.data.gridVersion) {
@@ -569,7 +576,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
         });
       }
     },
-    [activeBento, profile, blocks, gridVersion]
+    [activeBento, profile, blocks, gridVersion, reset]
   );
 
   const addBlock = (type: BlockType) => {
@@ -580,7 +587,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
       try {
         const { col, row } = JSON.parse(pendingPosition);
         gridPosition = { col, row };
-      } catch (e) {
+      } catch {
         // ignore
       }
       sessionStorage.removeItem('pendingBlockPosition');
@@ -766,8 +773,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
         ...bento,
         data: { ...bento.data, blocks: normalizedBlocks, gridVersion: nextGridVersion },
       });
-      setProfile(bento.data.profile);
-      setBlocks(normalizedBlocks);
+      reset({ profile: bento.data.profile, blocks: normalizedBlocks });
       setEditingBlockId(null);
       updateBentoData(bento.id, {
         profile: bento.data.profile,
@@ -800,7 +806,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
 
   // Get avatar style classes
   const getAvatarClasses = (style?: AvatarStyle) => {
-    const s = style || { shape: 'rounded', shadow: true, border: true };
+    const _s = style || { shape: 'rounded', shadow: true, border: true };
     const classes: string[] = [
       'w-full',
       'h-full',
@@ -985,6 +991,34 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore undo/redo if the user is typing in an input or textarea
+      const isInput =
+        e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      if (isInput) return;
+
+      // Ctrl+Z or Cmd+Z
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        if (e.shiftKey) {
+          redo(); // Ctrl + Shift + Z -> Redo
+        } else {
+          undo(); // Ctrl + Z -> Undo
+        }
+      }
+      // Ctrl+Y (traditional Redo on Windows)
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        redo();
+      }
+    };
+
+    // Attach the keyboard listener
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Cleanup listener when component unmounts
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
+
+  useEffect(() => {
     if (!showAnalyticsModal) return;
     const url = profile?.analytics?.supabaseUrl?.trim() || '';
     const ref = url ? inferProjectRefFromSupabaseUrl(url) : '';
@@ -1113,12 +1147,12 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
     }
   };
 
-  const handleDragEnterSlot = (slotIndex: number) => {
-    if (draggedBlockId) {
-      setDragOverSlotIndex(slotIndex);
-      setDragOverBlockId(null);
-    }
-  };
+  // const handleDragEnterSlot = (slotIndex: number) => {
+  //  if (draggedBlockId) {
+  //    setDragOverSlotIndex(slotIndex);
+  //    setDragOverBlockId(null);
+  //  }
+  // };
 
   const handleDragEnd = () => {
     setDraggedBlockId(null);
@@ -1181,7 +1215,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
     handleDragEnd();
   };
 
-  const handleDropAtSlot = (slotIndex: number) => {
+  /* const handleDropAtSlot = (slotIndex: number) => {
     if (!draggedBlockId) {
       handleDragEnd();
       return;
@@ -1201,7 +1235,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
 
     handleSetBlocks(newBlocks);
     handleDragEnd();
-  };
+  }; */
 
   const getGridCellFromPointer = useCallback((clientX: number, clientY: number) => {
     const grid = gridRef.current;
@@ -1308,6 +1342,8 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
       </div>
     );
   }
+
+  if (!profile) return <div className="flex items-center justify-center h-screen">Loading...</div>;
 
   // Background style from profile settings
   const backgroundStyle: React.CSSProperties = profile.backgroundImage
@@ -2121,7 +2157,7 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
           }
         }}
         blocks={blocks}
-        onBlocksChange={handleSetBlocks}
+        setBlocks={handleSetBlocks}
       />
 
       {/* 4. AVATAR CROP MODAL */}
@@ -2164,8 +2200,8 @@ const Builder: React.FC<BuilderProps> = ({ onBack }) => {
         onBentoImported={(newBento) => {
           // Reload the app with the new bento
           setActiveBento(newBento);
-          setProfile(newBento.data.profile);
-          setBlocks(newBento.data.blocks);
+          handleSetProfile(newBento.data.profile);
+          handleSetBlocks(newBento.data.blocks);
           setGridVersion(newBento.data.gridVersion ?? GRID_VERSION);
         }}
       />
